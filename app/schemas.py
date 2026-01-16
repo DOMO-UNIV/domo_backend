@@ -45,3 +45,37 @@ class ProjectResponse(BaseModel):
     id: int
     name: str
     workspace_id: int
+
+
+class BoardColumnCreate(BaseModel):
+    title: str
+    order: Optional[int] = 0
+
+
+class BoardColumnResponse(BaseModel):
+    id: int
+    title: str
+    order: int
+    project_id: int
+
+
+class CardCreate(BaseModel):
+    title: str
+    content: Optional[str] = None
+    order: Optional[int] = 0
+
+
+class CardResponse(BaseModel):
+    id: int
+    title: str
+    content: Optional[str] = None
+    order: int
+    column_id: int
+    assignee_id: Optional[int] = None
+
+
+class CardUpdate(BaseModel): 
+    title: Optional[str] = None
+    content: Optional[str] = None
+    column_id: Optional[int] = None
+    order: Optional[int] = None
