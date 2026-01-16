@@ -2,6 +2,7 @@ from pydantic import BaseModel, EmailStr
 from typing import Optional
 from datetime import time as dt_time
 
+
 # data for register
 class UserCreate(BaseModel):
     email: EmailStr
@@ -87,6 +88,7 @@ class ScheduleCreate(BaseModel):
     end_time: dt_time
     description: Optional[str] = None
 
+
 class ScheduleResponse(BaseModel):
     id: int
     user_id: int
@@ -95,7 +97,22 @@ class ScheduleResponse(BaseModel):
     end_time: dt_time
     description: Optional[str] = None
 
+
 class FreeTimeSlot(BaseModel):
     day_of_week: int
     start_time: dt_time
     end_time: dt_time
+
+
+class AddMemberRequest(BaseModel):
+    email: EmailStr
+
+
+class WorkspaceMemberResponse(BaseModel):
+    user_id: int
+    name: str
+    email: EmailStr
+    role: str # admin 또는 member
+
+    class Config:
+        from_attributes = True
