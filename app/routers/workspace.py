@@ -7,14 +7,15 @@ from app.models.user import User
 from app.models.session import UserSession
 from app.models.workspace import Workspace, WorkspaceMember, Project
 from app.schemas import WorkspaceCreate, WorkspaceResponse, ProjectCreate, ProjectResponse, AddMemberRequest, \
-    WorkspaceMemberResponse
-from datetime import datetime
+    WorkspaceMemberResponse, UserResponse
+from datetime import datetime, timedelta
 from typing import Any
 
 router = APIRouter(tags=["Workspace & Project"])
 
 # 쿠키에서 세션 ID를 추출하여 유저 ID 반환하는 의존성 함수
 from fastapi import Cookie
+
 def get_current_user_id(session_id: str = Cookie(None), db: Session = Depends(get_db)):
     if not session_id:
         raise HTTPException(status_code=401, detail="로그인이 필요합니다.")
@@ -22,6 +23,12 @@ def get_current_user_id(session_id: str = Cookie(None), db: Session = Depends(ge
     session = db.get(UserSession, session_id)
     if not session or session.expires_at < datetime.now():
         raise HTTPException(status_code=401, detail="세션이 만료되었습니다.")
+
+    user = db.get(User, session.user_id)
+    if user:
+        user.last_active_at = datetime.now()
+        db.add(user)
+        db.commit()
 
     return session.user_id
 
@@ -174,3 +181,29 @@ def get_workspace_members(
             role=r.role
         ) for r in results
     ]
+
+
+@router.get("/workspaces/{workspace_id}/online-members", response_model=List[UserResponse])
+def get_online_members(
+        workspace_id: int,
+        user_id: int = Depends(get_current_user_id),
+        db: Session = Depends(get_db)
+):
+    # 1. 요청한 사람이 멤버인지 확인
+    member = db.get(WorkspaceMember, (workspace_id, user_id))
+    if not member:
+        raise HTTPException(status_code=403, detail="워크스페이스 멤버가 아닙니다.")
+
+    # 2. 최근 5분 이내에 활동 기록(last_active_at)이 있는 유저 조회
+    active_threshold = datetime.now() - timedelta(minutes=1)
+
+    statement = (
+        select(User)
+        .join(WorkspaceMember, User.id == WorkspaceMember.user_id)
+        .where(WorkspaceMember.workspace_id == workspace_id)
+        .where(User.last_active_at >= active_threshold) # 👈 핵심 조건
+    )
+
+    online_users = db.exec(statement).all()
+
+    return online_users
