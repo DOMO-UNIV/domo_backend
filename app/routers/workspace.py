@@ -1,13 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 from typing import List
-
+import uuid
 from app.database import get_db
 from app.models.user import User
 from app.models.session import UserSession
 from app.models.workspace import Workspace, WorkspaceMember, Project
 from app.schemas import WorkspaceCreate, WorkspaceResponse, ProjectCreate, ProjectResponse, AddMemberRequest, \
     WorkspaceMemberResponse, UserResponse
+from app.models.invitation import Invitation
+from app.schemas import InvitationCreate, InvitationResponse, InvitationInfo
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -207,3 +209,70 @@ def get_online_members(
     online_users = db.exec(statement).all()
 
     return online_users
+
+
+@router.post("/workspaces/{workspace_id}/invitations", response_model=InvitationResponse)
+def create_invitation(
+        workspace_id: int,
+        invite_data: InvitationCreate,
+        user_id: int = Depends(get_current_user_id),
+        db: Session = Depends(get_db)
+):
+    # 1. 권한 확인 (관리자만 초대 가능)
+    membership = db.get(WorkspaceMember, (workspace_id, user_id))
+    if not membership or membership.role != "admin":
+        raise HTTPException(status_code=403, detail="관리자만 초대 링크를 만들 수 있습니다.")
+
+    # 2. 초대 토큰 생성
+    token = str(uuid.uuid4())
+    expires_at = datetime.now() + timedelta(hours=invite_data.expires_in_hours)
+
+    invitation = Invitation(
+        token=token,
+        workspace_id=workspace_id,
+        inviter_id=user_id,
+        role=invite_data.role,
+        expires_at=expires_at
+    )
+
+    db.add(invitation)
+    db.commit()
+
+    # 3. 프론트엔드 URL 생성 (환경변수로 도메인 관리 추천)
+    base_url = "http://localhost:8000" # 실제 배포 시 변경 필요
+    invite_link = f"{base_url}/invite/{token}"
+
+    return InvitationResponse(invite_link=invite_link, expires_at=expires_at)
+
+
+# 9. [신규] 초대 링크 수락하기
+@router.post("/invitations/{token}/accept")
+def accept_invitation(
+        token: str,
+        user_id: int = Depends(get_current_user_id),
+        db: Session = Depends(get_db)
+):
+    # 1. 초대장 조회
+    invite = db.exec(select(Invitation).where(Invitation.token == token)).first()
+    if not invite:
+        raise HTTPException(status_code=404, detail="유효하지 않은 초대 링크입니다.")
+
+    # 2. 유효성 검사 (만료 확인)
+    if invite.expires_at < datetime.now():
+        raise HTTPException(status_code=400, detail="만료된 초대 링크입니다.")
+
+    # 3. 이미 멤버인지 확인
+    existing_member = db.get(WorkspaceMember, (invite.workspace_id, user_id))
+    if existing_member:
+        return {"message": "이미 워크스페이스의 멤버입니다."}
+
+    # 4. 멤버 추가
+    new_member = WorkspaceMember(
+        workspace_id=invite.workspace_id,
+        user_id=user_id,
+        role=invite.role
+    )
+    db.add(new_member)
+    db.commit()
+
+    return {"message": "워크스페이스에 성공적으로 참여했습니다!"}

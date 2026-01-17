@@ -60,13 +60,15 @@ class BoardColumnResponse(BaseModel):
     project_id: int
 
 
+#todo orders 필드는 추후 라벨로 처리
 class CardCreate(BaseModel):
     title: str
     content: Optional[str] = None
     order: Optional[int] = 0
     x: Optional[float] = 0.0
     y: Optional[float] = 0.0
-    assignee_ids: List[int] = [] # 👈 여러 명의 ID를 리스트로 받음
+    assignee_ids: List[int] = []  # 👈 여러 명의 ID를 리스트로 받음
+
 
 class CardUpdate(BaseModel):
     title: Optional[str] = None
@@ -75,7 +77,8 @@ class CardUpdate(BaseModel):
     order: Optional[int] = None
     x: Optional[float] = None
     y: Optional[float] = None
-    assignee_ids: Optional[List[int]] = None # 👈 수정 시에도 리스트로 받음
+    assignee_ids: Optional[List[int]] = None  # 👈 수정 시에도 리스트로 받음
+
 
 # 2. 카드 응답 스키마 변경
 class CardResponse(BaseModel):
@@ -150,3 +153,21 @@ class FileResponse(BaseModel):
 class VerificationRequest(BaseModel):
     email: EmailStr
     code: str
+
+
+class InvitationCreate(BaseModel):
+    role: str = "member"
+    expires_in_hours: int = 24  # 유효기간 (기본 24시간)
+
+
+# 초대 링크 응답
+class InvitationResponse(BaseModel):
+    invite_link: str
+    expires_at: datetime
+
+
+# 초대 정보 조회 응답 (수락 전 확인용)
+class InvitationInfo(BaseModel):
+    workspace_name: str
+    inviter_name: str
+    role: str
