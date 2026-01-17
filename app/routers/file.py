@@ -12,6 +12,9 @@ from app.models.file import FileMetadata, FileVersion
 from app.models.workspace import Project, WorkspaceMember
 from app.schemas import FileResponse, FileVersionResponse
 from typing import List
+from app.utils.logger import log_activity
+from app.models.workspace import Project
+from app.models.user import User  # 👈 User 모델 임포트 (로그용)
 
 router = APIRouter(tags=["File Management"])
 
@@ -89,6 +92,25 @@ async def upload_file(
     db.add(new_version)
     db.commit()
     db.refresh(new_version)
+
+    try:
+        user = db.get(User, user_id)
+        project = db.get(Project, project_id)
+
+        # v1이면 "업로드", v2 이상이면 "업데이트"
+        action_msg = "업로드" if current_version_num == 1 else f"새 버전(v{current_version_num}) 업데이트"
+
+        log_activity(
+            db=db,
+            user_id=user_id,
+            workspace_id=project.workspace_id if project else None,
+            action_type="UPLOAD",
+            content=f"💾 '{user.name}'님이 '{project.name}' 프로젝트에 파일 '{file.filename}'을(를) {action_msg}했습니다."
+        )
+    except Exception as e:
+        print(f"로그 저장 실패: {e}") # 로그 실패가 파일 업로드를 막으면 안 되므로 예외 처리
+
+
 
     # 응답 생성
     return FileResponse(

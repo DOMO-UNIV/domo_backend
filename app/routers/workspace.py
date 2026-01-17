@@ -12,6 +12,7 @@ from app.models.invitation import Invitation
 from app.schemas import InvitationCreate, InvitationResponse, InvitationInfo
 from datetime import datetime, timedelta
 from typing import Any
+from app.utils.logger import log_activity
 
 router = APIRouter(tags=["Workspace & Project"])
 
@@ -57,6 +58,15 @@ def create_workspace(
     db.add(member)
     db.commit()
 
+    user = db.get(User, user_id)
+    log_activity(
+        db=db,
+        user_id=user_id,
+        workspace_id=new_ws.id,
+        action_type="CREATE",
+        content=f"🚩 '{user.name}'님이 새로운 워크스페이스 '{new_ws.name}'을(를) 시작했습니다."
+    )
+
     return new_ws
 
 # 2. 내 워크스페이스 목록 조회
@@ -95,6 +105,15 @@ def create_project(
     db.add(new_project)
     db.commit()
     db.refresh(new_project)
+
+    user = db.get(User, user_id)
+    log_activity(
+        db=db,
+        user_id=user_id,
+        workspace_id=workspace_id,
+        action_type="CREATE",
+        content=f"📂 '{user.name}'님이 프로젝트 '{new_project.name}'을(를) 만들었습니다."
+    )
 
     return new_project
 
@@ -146,6 +165,16 @@ def add_workspace_member(
     )
     db.add(new_member)
     db.commit()
+
+    actor = db.get(User, user_id)
+    ws = db.get(Workspace, workspace_id)
+    log_activity(
+        db=db,
+        user_id=user_id,
+        workspace_id=workspace_id,
+        action_type="MEMBER_ADD",
+        content=f"👥 '{actor.name}'님이 '{target_user.name}'님을 '{ws.name}' 워크스페이스 멤버로 추가했습니다."
+    )
 
     return {"message": f"{target_user.name} 님이 팀원으로 추가되었습니다."}
 
@@ -274,5 +303,16 @@ def accept_invitation(
     )
     db.add(new_member)
     db.commit()
+
+    new_comer = db.get(User, user_id)
+    ws = db.get(Workspace, invite.workspace_id)
+
+    log_activity(
+        db=db,
+        user_id=user_id,
+        workspace_id=invite.workspace_id,
+        action_type="JOIN",
+        content=f"👋 '{new_comer.name}'님이 '{ws.name}' 워크스페이스에 참여했습니다."
+    )
 
     return {"message": "워크스페이스에 성공적으로 참여했습니다!"}

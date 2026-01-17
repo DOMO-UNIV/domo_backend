@@ -174,3 +174,11 @@ class InvitationInfo(BaseModel):
     workspace_name: str
     inviter_name: str
     role: str
+
+
+class ActivityLogResponse(BaseModel):
+    id: int
+    user_id: int
+    content: str
+    action_type: str
+    created_at: datetime

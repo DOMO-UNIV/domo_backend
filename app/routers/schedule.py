@@ -7,17 +7,34 @@ from app.database import get_db
 from app.routers.workspace import get_current_user_id
 from app.models.schedule import Schedule
 from app.models.workspace import WorkspaceMember
+from app.models.user import User
 from app.schemas import ScheduleCreate, ScheduleResponse, FreeTimeSlot
+from app.utils.logger import log_activity
+
+
+
 
 router = APIRouter(tags=["Schedule & Free Time"])
 
 # 1. 내 시간표 등록 (수업 추가)
 @router.post("/schedules", response_model=ScheduleResponse)
-def add_schedule(s_data: ScheduleCreate, user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)):
+def add_schedule(s_data: ScheduleCreate,
+                 user_id: int = Depends(get_current_user_id),
+                 db: Session = Depends(get_db)):
     new_schedule = Schedule(**s_data.model_dump(), user_id=user_id)
     db.add(new_schedule)
     db.commit()
     db.refresh(new_schedule)
+    user = db.get(User, user_id)
+
+    log_activity(
+        db=db,
+        user_id=user_id,
+        workspace_id=None, # 개인 활동
+        action_type="SCHEDULE",
+        content=f"📅 '{user.name}'님이 새로운 일정 '{new_schedule.description or '일정'}'을(를) 등록했습니다."
+    )
+
     return new_schedule
 
 # 2. 특정 워크스페이스 팀원들의 공통 빈 시간 계산 (핵심!)

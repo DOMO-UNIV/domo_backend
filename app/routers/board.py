@@ -6,8 +6,14 @@ from app.routers.workspace import get_current_user_id  # 기존 인증 함수 �
 from app.models.board import BoardColumn, Card, CardAssignee
 from app.models.workspace import Project, WorkspaceMember
 from app.schemas import BoardColumnCreate, BoardColumnResponse, CardCreate, CardResponse, CardUpdate
-from app.models.user import User
 from datetime import datetime
+from app.utils.logger import log_activity
+from app.models.user import User
+from app.models.workspace import Project
+from app.models.file import FileMetadata
+from app.models.board import CardFileLink
+from app.schemas import FileResponse
+
 
 router = APIRouter(tags=["Board & Cards"])
 
@@ -25,6 +31,19 @@ def create_column(project_id: int, col_data: BoardColumnCreate, user_id: int = D
     db.add(new_col)
     db.commit()
     db.refresh(new_col)
+
+    user = db.get(User, user_id)
+    # Project를 조회해서 workspace_id를 알아냄
+    project = db.get(Project, project_id)
+
+    log_activity(
+        db=db,
+        user_id=user_id,
+        workspace_id=project.workspace_id,
+        action_type="CREATE",
+        content=f"📋 '{user.name}'님이 '{project.name}' 프로젝트에 '{new_col.title}' 컬럼을 생성했습니다."
+    )
+
     return new_col
 
 
@@ -59,6 +78,20 @@ def create_card(
     db.add(new_card)
     db.commit()
     db.refresh(new_card)
+
+    user = db.get(User, user_id)
+    # Column -> Project -> Workspace 역추적
+    column = db.get(BoardColumn, column_id)
+    project = db.get(Project, column.project_id)
+
+    log_activity(
+        db=db,
+        user_id=user_id,
+        workspace_id=project.workspace_id,
+        action_type="CREATE",
+        content=f"📝 '{user.name}'님이 '{project.name}'에 카드 '{new_card.title}'을(를) 생성했습니다."
+    )
+
     return new_card
 
 
@@ -106,18 +139,11 @@ def update_card(
     return card
 
 
-from app.models.file import FileMetadata  # 👈 임포트 추가
-from app.models.board import CardFileLink  # 👈 임포트 추가
-from app.schemas import FileResponse  # 👈 임포트 추가
-
-
-# ... (기존 API들) ...
-
-# 4. [신규] 카드에 파일 첨부 (링크 연결)
 @router.post("/cards/{card_id}/files/{file_id}", response_model=CardResponse)
 def attach_file_to_card(
         card_id: int,
         file_id: int,
+        user_id: int = Depends(get_current_user_id),
         db: Session = Depends(get_db)
 ):
     # 1. 존재 여부 확인
@@ -138,6 +164,21 @@ def attach_file_to_card(
     db.commit()
     db.refresh(card)  # card.files 관계 새로고침
 
+    user = db.get(User, user_id)
+    card = db.get(Card, card_id)
+    file = db.get(FileMetadata, file_id)
+    # 역추적
+    column = db.get(BoardColumn, card.column_id)
+    project = db.get(Project, column.project_id)
+
+    log_activity(
+        db=db,
+        user_id=user_id,
+        workspace_id=project.workspace_id,
+        action_type="ATTACH",
+        content=f"📎 '{user.name}'님이 카드 '{card.title}'에 파일 '{file.filename}'을(를) 첨부했습니다."
+    )
+
     return card
 
 
@@ -146,6 +187,7 @@ def attach_file_to_card(
 def detach_file_from_card(
         card_id: int,
         file_id: int,
+        user_id: int = Depends(get_current_user_id),
         db: Session = Depends(get_db)
 ):
     link = db.get(CardFileLink, (card_id, file_id))
@@ -154,6 +196,21 @@ def detach_file_from_card(
 
     db.delete(link)
     db.commit()
+
+    user = db.get(User, user_id)
+    card = db.get(Card, card_id)
+    file = db.get(FileMetadata, file_id)
+    # 역추적
+    column = db.get(BoardColumn, card.column_id)
+    project = db.get(Project, column.project_id)
+
+    log_activity(
+        db=db,
+        user_id=user_id,
+        workspace_id=project.workspace_id,
+        action_type="DETACH",
+        content=f"📎 '{user.name}'님이 카드 '{card.title}'에서 파일 '{file.filename}'을(를) 분리했습니다."
+    )
 
     return {"message": "파일 연결이 해제되었습니다."}
 

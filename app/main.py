@@ -6,7 +6,7 @@ import time
 import asyncio
 
 #routers
-from app.routers import auth,workspace,board,schedule,file
+from app.routers import auth,workspace,board,schedule,file,activity
 
 
 try:
@@ -74,6 +74,7 @@ app.include_router(workspace.router, prefix="/api")
 app.include_router(board.router, prefix="/api")
 app.include_router(schedule.router, prefix="/api")
 app.include_router(file.router, prefix="/api")
+app.include_router(activity.router, prefix="/api")
 
 @app.get("/")
 def read_root():
