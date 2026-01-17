@@ -2,19 +2,20 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 from typing import List
 from app.database import get_db
-from app.routers.workspace import get_current_user_id # 기존 인증 함수 재사용
+from app.routers.workspace import get_current_user_id  # 기존 인증 함수 재사용
 from app.models.board import BoardColumn, Card, CardAssignee
 from app.models.workspace import Project, WorkspaceMember
 from app.schemas import BoardColumnCreate, BoardColumnResponse, CardCreate, CardResponse, CardUpdate
 from app.models.user import User
 from datetime import datetime
 
-
 router = APIRouter(tags=["Board & Cards"])
+
 
 # 1. 컬럼 생성
 @router.post("/projects/{project_id}/columns", response_model=BoardColumnResponse)
-def create_column(project_id: int, col_data: BoardColumnCreate, user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)):
+def create_column(project_id: int, col_data: BoardColumnCreate, user_id: int = Depends(get_current_user_id),
+                  db: Session = Depends(get_db)):
     project = db.get(Project, project_id)
     if not project: raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없습니다.")
 
@@ -25,6 +26,7 @@ def create_column(project_id: int, col_data: BoardColumnCreate, user_id: int = D
     db.commit()
     db.refresh(new_col)
     return new_col
+
 
 # 2. 카드 생성
 @router.post("/columns/{column_id}/cards", response_model=CardResponse)
@@ -59,6 +61,7 @@ def create_card(
     db.refresh(new_card)
     return new_card
 
+
 # 3. 특정 프로젝트의 모든 컬럼 및 카드 조회
 @router.get("/projects/{project_id}/board")
 def get_board(project_id: int, db: Session = Depends(get_db)):
@@ -71,6 +74,7 @@ def get_board(project_id: int, db: Session = Depends(get_db)):
             "cards": cards
         })
     return result
+
 
 @router.patch("/cards/{card_id}", response_model=CardResponse)
 def update_card(
@@ -99,4 +103,68 @@ def update_card(
     db.add(card)
     db.commit()
     db.refresh(card)
+    return card
+
+
+from app.models.file import FileMetadata  # 👈 임포트 추가
+from app.models.board import CardFileLink  # 👈 임포트 추가
+from app.schemas import FileResponse  # 👈 임포트 추가
+
+
+# ... (기존 API들) ...
+
+# 4. [신규] 카드에 파일 첨부 (링크 연결)
+@router.post("/cards/{card_id}/files/{file_id}", response_model=CardResponse)
+def attach_file_to_card(
+        card_id: int,
+        file_id: int,
+        db: Session = Depends(get_db)
+):
+    # 1. 존재 여부 확인
+    card = db.get(Card, card_id)
+    file = db.get(FileMetadata, file_id)
+
+    if not card or not file:
+        raise HTTPException(status_code=404, detail="카드 또는 파일을 찾을 수 없습니다.")
+
+    # 2. 이미 연결되어 있는지 확인
+    existing_link = db.get(CardFileLink, (card_id, file_id))
+    if existing_link:
+        return card  # 이미 있으면 그냥 반환
+
+    # 3. 연결 생성
+    link = CardFileLink(card_id=card_id, file_id=file_id)
+    db.add(link)
+    db.commit()
+    db.refresh(card)  # card.files 관계 새로고침
+
+    return card
+
+
+# 5. [신규] 카드에서 파일 연결 해제
+@router.delete("/cards/{card_id}/files/{file_id}")
+def detach_file_from_card(
+        card_id: int,
+        file_id: int,
+        db: Session = Depends(get_db)
+):
+    link = db.get(CardFileLink, (card_id, file_id))
+    if not link:
+        raise HTTPException(status_code=404, detail="해당 파일이 카드에 첨부되어 있지 않습니다.")
+
+    db.delete(link)
+    db.commit()
+
+    return {"message": "파일 연결이 해제되었습니다."}
+
+
+@router.get("/cards/{card_id}", response_model=CardResponse)
+def get_card(
+        card_id: int,
+        db: Session = Depends(get_db)
+):
+    card = db.get(Card, card_id)
+    if not card:
+        raise HTTPException(status_code=404, detail="카드를 찾을 수 없습니다.")
+
     return card

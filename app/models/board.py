@@ -4,6 +4,12 @@ from sqlmodel import SQLModel, Field, Relationship
 from app.models.user import User
 
 
+class CardFileLink(SQLModel, table=True):
+    __tablename__ = "card_files"
+    card_id: int = Field(foreign_key="cards.id", primary_key=True)
+    file_id: int = Field(foreign_key="files.id", primary_key=True)
+
+
 class CardAssignee(SQLModel, table=True):
     __tablename__ = "card_assignees"
     card_id: int = Field(foreign_key="cards.id", primary_key=True)
@@ -41,6 +47,7 @@ class Card(SQLModel, table=True):
 
     column_id: int = Field(foreign_key="board_columns.id", index=True)
     assignees: List[User] = Relationship(link_model=CardAssignee)
+    files: List["FileMetadata"] = Relationship(link_model=CardFileLink, back_populates="cards")
 
     x: float = Field(default=0.0)
     y: float = Field(default=0.0)

@@ -81,19 +81,6 @@ class CardUpdate(BaseModel):
 
 
 # 2. 카드 응답 스키마 변경
-class CardResponse(BaseModel):
-    id: int
-    title: str
-    content: Optional[str] = None
-    order: int
-    column_id: int
-    x: float
-    y: float
-    created_at: datetime
-    updated_at: datetime
-
-    # ✅ 담당자들의 상세 정보를 리스트로 반환
-    assignees: List[UserResponse] = []
 
 
 class ScheduleCreate(BaseModel):
@@ -148,6 +135,22 @@ class FileResponse(BaseModel):
     created_at: datetime
     # 가장 최신 버전을 보여주기 위해
     latest_version: Optional[FileVersionResponse] = None
+
+
+class CardResponse(BaseModel):
+    id: int
+    title: str
+    content: Optional[str] = None
+    order: int
+    column_id: int
+    x: float
+    y: float
+    created_at: datetime
+    updated_at: datetime
+
+    # ✅ 담당자들의 상세 정보를 리스트로 반환
+    assignees: List[UserResponse] = []
+    files: List[FileResponse] = []
 
 
 class VerificationRequest(BaseModel):
