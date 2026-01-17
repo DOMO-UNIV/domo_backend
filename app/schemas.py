@@ -134,3 +134,8 @@ class FileResponse(BaseModel):
     created_at: datetime
     # 가장 최신 버전을 보여주기 위해
     latest_version: Optional[FileVersionResponse] = None
+
+
+class VerificationRequest(BaseModel):
+    email: EmailStr
+    code: str
