@@ -14,7 +14,8 @@ from app.schemas import FileResponse, FileVersionResponse
 from typing import List
 from app.utils.logger import log_activity
 from app.models.workspace import Project
-from app.models.user import User  # 👈 User 모델 임포트 (로그용)
+from app.models.user import User
+from app.models.board import CardFileLink
 
 router = APIRouter(tags=["File Management"])
 
@@ -164,3 +165,56 @@ def get_file_history(
     ).all()
 
     return versions
+
+@router.delete("/files/{file_id}")
+def delete_file(
+        file_id: int,
+        user_id: int = Depends(get_current_user_id),
+        db: Session = Depends(get_db)
+):
+    # 1. 파일 메타데이터 확인
+    file_meta = db.get(FileMetadata, file_id)
+    if not file_meta:
+        raise HTTPException(status_code=404, detail="파일을 찾을 수 없습니다.")
+
+    # 2. 로그를 위한 정보 미리 저장 (삭제 후엔 조회 불가)
+    filename = file_meta.filename
+    project = db.get(Project, file_meta.project_id)
+    workspace_id = project.workspace_id if project else None
+
+    # 3. 물리적 파일 삭제 (모든 버전 반복)
+    versions = db.exec(select(FileVersion).where(FileVersion.file_id == file_id)).all()
+    for version in versions:
+        # 실제 파일이 디스크에 있으면 삭제
+        if os.path.exists(version.saved_path):
+            try:
+                os.remove(version.saved_path)
+            except Exception as e:
+                print(f"파일 삭제 실패 (ID: {version.id}): {e}")
+
+        # DB에서 버전 정보 삭제
+        db.delete(version)
+
+    # 4. 카드와의 연결 관계(링크) 삭제
+    links = db.exec(select(CardFileLink).where(CardFileLink.file_id == file_id)).all()
+    for link in links:
+        db.delete(link)
+
+    # 5. 메타데이터(껍데기) 삭제
+    db.delete(file_meta)
+    db.commit()
+
+    # 6. 로그 기록
+    try:
+        user = db.get(User, user_id)
+        log_activity(
+            db=db,
+            user_id=user_id,
+            workspace_id=workspace_id,
+            action_type="DELETE",
+            content=f"🗑️ '{user.name}'님이 파일 '{filename}'을(를) 영구 삭제했습니다."
+        )
+    except Exception as e:
+        print(f"로그 저장 실패: {e}")
+
+    return {"message": "파일과 모든 버전이 삭제되었습니다."}
