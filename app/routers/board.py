@@ -5,23 +5,23 @@ from app.database import get_db
 from app.routers.workspace import get_current_user_id  # 기존 인증 함수 재사용
 from app.models.board import BoardColumn, Card, CardAssignee
 from app.models.workspace import Project, WorkspaceMember
-from app.schemas import BoardColumnCreate, BoardColumnResponse, CardCreate, CardResponse, CardUpdate
+from app.schemas import BoardColumnCreate, BoardColumnResponse, CardCreate, CardResponse, CardUpdate, CardCommentCreate, \
+    CardCommentResponse
 from datetime import datetime
 from app.utils.logger import log_activity
 from app.models.user import User
 from app.models.workspace import Project
 from app.models.file import FileMetadata
-from app.models.board import CardFileLink
+from app.models.board import CardFileLink, CardComment
 from app.schemas import FileResponse
 from vectorwave import *
-
 
 router = APIRouter(tags=["Board & Cards"])
 
 
 # 1. 컬럼 생성
 @router.post("/projects/{project_id}/columns", response_model=BoardColumnResponse)
-@vectorize(search_description="Create board column", capture_return_value=True, replay=True) # 👈 추가
+@vectorize(search_description="Create board column", capture_return_value=True, replay=True)  # 👈 추가
 def create_column(project_id: int, col_data: BoardColumnCreate, user_id: int = Depends(get_current_user_id),
                   db: Session = Depends(get_db)):
     project = db.get(Project, project_id)
@@ -51,7 +51,7 @@ def create_column(project_id: int, col_data: BoardColumnCreate, user_id: int = D
 
 # 2. 카드 생성
 @router.post("/columns/{column_id}/cards", response_model=CardResponse)
-@vectorize(search_description="Create card", capture_return_value=True, replay=True) # 👈 추가
+@vectorize(search_description="Create card", capture_return_value=True, replay=True)  # 👈 추가
 def create_card(
         column_id: int,
         card_data: CardCreate,
@@ -100,7 +100,7 @@ def create_card(
 
 # 3. 특정 프로젝트의 모든 컬럼 및 카드 조회
 @router.get("/projects/{project_id}/board")
-@vectorize(search_description="Get project kanban board", capture_return_value=True, replay=True) # 👈 추가
+@vectorize(search_description="Get project kanban board", capture_return_value=True, replay=True)  # 👈 추가
 def get_board(project_id: int, db: Session = Depends(get_db)):
     columns = db.exec(select(BoardColumn).where(BoardColumn.project_id == project_id).order_by(BoardColumn.order)).all()
     result = []
@@ -114,7 +114,7 @@ def get_board(project_id: int, db: Session = Depends(get_db)):
 
 
 @router.patch("/cards/{card_id}", response_model=CardResponse)
-@vectorize(search_description="Update card", capture_return_value=True, replay=True) # 👈 추가
+@vectorize(search_description="Update card", capture_return_value=True, replay=True)  # 👈 추가
 def update_card(
         card_id: int,
         card_data: CardUpdate,
@@ -145,7 +145,7 @@ def update_card(
 
 
 @router.post("/cards/{card_id}/files/{file_id}", response_model=CardResponse)
-@vectorize(search_description="Attach file to card", capture_return_value=True, replay=True) # 👈 추가
+@vectorize(search_description="Attach file to card", capture_return_value=True, replay=True)  # 👈 추가
 def attach_file_to_card(
         card_id: int,
         file_id: int,
@@ -190,7 +190,7 @@ def attach_file_to_card(
 
 # 5. [신규] 카드에서 파일 연결 해제
 @router.delete("/cards/{card_id}/files/{file_id}")
-@vectorize(search_description="Detach file from card", capture_return_value=True, replay=True) # 👈 추가
+@vectorize(search_description="Detach file from card", capture_return_value=True, replay=True)  # 👈 추가
 def detach_file_from_card(
         card_id: int,
         file_id: int,
@@ -223,7 +223,7 @@ def detach_file_from_card(
 
 
 @router.get("/cards/{card_id}", response_model=CardResponse)
-@vectorize(search_description="Get card details", capture_return_value=True, replay=True) # 👈 추가
+@vectorize(search_description="Get card details", capture_return_value=True, replay=True)  # 👈 추가
 def get_card(
         card_id: int,
         db: Session = Depends(get_db)
@@ -233,3 +233,62 @@ def get_card(
         raise HTTPException(status_code=404, detail="카드를 찾을 수 없습니다.")
 
     return card
+
+
+@router.post("/cards/{card_id}/comments", response_model=CardCommentResponse)
+@vectorize(search_description="Add comment to card", capture_return_value=True)
+def create_comment(
+        card_id: int,
+        comment_data: CardCommentCreate,
+        user_id: int = Depends(get_current_user_id),
+        db: Session = Depends(get_db)
+):
+    card = db.get(Card, card_id)
+    if not card:
+        raise HTTPException(status_code=404, detail="Card not found")
+
+    new_comment = CardComment(
+        card_id=card_id,
+        user_id=user_id,
+        content=comment_data.content
+    )
+    db.add(new_comment)
+    db.commit()
+    db.refresh(new_comment)
+
+    # 활동 로그 (선택)
+    user = db.get(User, user_id)
+    # log_activity(...) # 필요하다면 추가
+
+    return new_comment
+
+
+@router.get("/cards/{card_id}/comments", response_model=List[CardCommentResponse])
+def get_card_comments(
+        card_id: int,
+        db: Session = Depends(get_db)
+):
+    comments = db.exec(
+        select(CardComment)
+        .where(CardComment.card_id == card_id)
+        .order_by(CardComment.created_at.asc())  # 오래된 순 정렬
+    ).all()
+    return comments
+
+
+@router.delete("/cards/comments/{comment_id}")
+def delete_comment(
+        comment_id: int,
+        user_id: int = Depends(get_current_user_id),
+        db: Session = Depends(get_db)
+):
+    comment = db.get(CardComment, comment_id)
+    if not comment:
+        raise HTTPException(status_code=404, detail="Comment not found")
+
+    if comment.user_id != user_id:
+        raise HTTPException(status_code=403, detail="작성자만 삭제할 수 있습니다.")
+
+    db.delete(comment)
+    db.commit()
+    return {"message": "댓글이 삭제되었습니다."}

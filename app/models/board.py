@@ -57,3 +57,19 @@ class Card(SQLModel, table=True):
 
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
+
+
+class CardComment(SQLModel, table=True):
+    __tablename__ = "card_comments"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    card_id: int = Field(foreign_key="cards.id")
+    user_id: int = Field(foreign_key="users.id")
+
+    content: str
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+
+    # 관계 설정
+    card: "Card" = Relationship(back_populates="comments")
+    user: "User" = Relationship()  # 작성자 정보 접근용

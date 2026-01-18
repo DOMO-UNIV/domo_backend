@@ -5,16 +5,16 @@ from datetime import time, datetime, timedelta
 
 from app.database import get_db
 from app.routers.workspace import get_current_user_id
-from app.models.schedule import Schedule
+from app.models.schedule import Schedule, ProjectEvent
 from app.models.workspace import WorkspaceMember
 from app.models.user import User
-from app.schemas import ScheduleCreate, ScheduleResponse, FreeTimeSlot
+from app.schemas import ScheduleCreate, ScheduleResponse, FreeTimeSlot, ProjectEventCreate, ProjectEventResponse
 from app.utils.logger import log_activity
+from app.models.workspace import Project
 from vectorwave import *
 
-
-
 router = APIRouter(tags=["Schedule & Free Time"])
+
 
 # 1. 내 시간표 등록 (수업 추가)
 @router.post("/schedules", response_model=ScheduleResponse)
@@ -31,12 +31,36 @@ def add_schedule(s_data: ScheduleCreate,
     log_activity(
         db=db,
         user_id=user_id,
-        workspace_id=None, # 개인 활동
+        workspace_id=None,  # 개인 활동
         action_type="SCHEDULE",
         content=f"📅 '{user.name}'님이 새로운 일정 '{new_schedule.description or '일정'}'을(를) 등록했습니다."
     )
 
     return new_schedule
+
+
+@router.delete("/schedules/{schedule_id}")
+@vectorize(search_description="Delete personal schedule", capture_return_value=True)
+def delete_personal_schedule(
+        schedule_id: int,
+        db: Session = Depends(get_db),
+        user_id: int = Depends(get_current_user_id)
+):
+    # 1. 일정 조회
+    schedule = db.get(Schedule, schedule_id)
+    if not schedule:
+        raise HTTPException(status_code=404, detail="일정을 찾을 수 없습니다.")
+
+    # 2. 본인 확인 (내 일정만 삭제 가능)
+    if schedule.user_id != user_id:
+        raise HTTPException(status_code=403, detail="본인의 일정만 삭제할 수 있습니다.")
+
+    # 3. 삭제
+    db.delete(schedule)
+    db.commit()
+
+    return {"message": "개인 일정이 삭제되었습니다."}
+
 
 # 2. 특정 워크스페이스 팀원들의 공통 빈 시간 계산 (핵심!)
 @router.get("/workspaces/{workspace_id}/free-time", response_model=List[FreeTimeSlot])
@@ -60,8 +84,8 @@ def get_common_free_time(workspace_id: int, db: Session = Depends(get_db)):
             key=lambda x: x.start_time
         )
 
-        current_time = datetime.combine(datetime.today(), time(9, 0)) # 오전 9시 시작
-        end_limit = datetime.combine(datetime.today(), time(22, 0))   # 오후 10시 종료
+        current_time = datetime.combine(datetime.today(), time(9, 0))  # 오전 9시 시작
+        end_limit = datetime.combine(datetime.today(), time(22, 0))  # 오후 10시 종료
 
         for s in day_schedules:
             s_start = datetime.combine(datetime.today(), s.start_time)
@@ -88,3 +112,70 @@ def get_common_free_time(workspace_id: int, db: Session = Depends(get_db)):
             ))
 
     return free_slots
+
+
+@router.get("/projects/{project_id}/events", response_model=List[ProjectEventResponse])
+@vectorize(search_description="List project calendar events", capture_return_value=True)
+def get_project_events(
+        project_id: int,
+        db: Session = Depends(get_db),
+        user_id: int = Depends(get_current_user_id)
+):
+    # (선택) 여기서 사용자가 프로젝트 멤버인지 체크하는 로직을 추가할 수 있습니다.
+    events = db.exec(select(ProjectEvent).where(ProjectEvent.project_id == project_id)).all()
+    return events
+
+
+# 2. 프로젝트 일정 등록
+@router.post("/projects/{project_id}/events", response_model=ProjectEventResponse)
+@vectorize(search_description="Create project calendar event", capture_return_value=True)
+def create_project_event(
+        project_id: int,
+        event_data: ProjectEventCreate,
+        db: Session = Depends(get_db),
+        user_id: int = Depends(get_current_user_id)
+):
+    # 프로젝트 존재 확인
+    project = db.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    new_event = ProjectEvent(
+        project_id=project_id,
+        created_by=user_id,
+        **event_data.model_dump()
+    )
+
+    db.add(new_event)
+    db.commit()
+    db.refresh(new_event)
+
+    # 활동 로그 기록
+    user = db.get(User, user_id)
+    log_activity(
+        db=db,
+        user_id=user_id,
+        workspace_id=project.workspace_id,  # 프로젝트가 속한 워크스페이스에 로그 남김
+        action_type="CALENDAR",
+        content=f"📅 '{user.name}'님이 프로젝트 '{project.name}'에 일정 '{new_event.title}'을(를) 등록했습니다."
+    )
+
+    return new_event
+
+
+# 3. 프로젝트 일정 삭제
+@router.delete("/events/{event_id}")
+@vectorize(search_description="Delete project event", capture_return_value=True)
+def delete_project_event(
+        event_id: int,
+        db: Session = Depends(get_db),
+        user_id: int = Depends(get_current_user_id)
+):
+    event = db.get(ProjectEvent, event_id)
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    db.delete(event)
+    db.commit()
+
+    return {"message": "일정이 삭제되었습니다."}

@@ -140,6 +140,19 @@ class FileResponse(BaseModel):
     # 가장 최신 버전을 보여주기 위해
     latest_version: Optional[FileVersionResponse] = None
 
+class CardCommentCreate(BaseModel):
+    content: str
+
+class CardCommentResponse(BaseModel):
+    id: int
+    card_id: int
+    user_id: int
+    content: str
+    created_at: datetime
+    updated_at: datetime
+
+    user: Optional[UserResponse] = None # 작성자 정보 포함
+
 
 class CardResponse(BaseModel):
     id: int
@@ -186,4 +199,22 @@ class ActivityLogResponse(BaseModel):
     user_id: int
     content: str
     action_type: str
+    created_at: datetime
+
+
+class ProjectEventCreate(BaseModel):
+    title: str
+    description: Optional[str] = None
+    start_datetime: datetime
+    end_datetime: datetime
+
+
+class ProjectEventResponse(BaseModel):
+    id: int
+    project_id: int
+    title: str
+    description: Optional[str] = None
+    start_datetime: datetime
+    end_datetime: datetime
+    created_by: int
     created_at: datetime
