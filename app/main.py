@@ -4,10 +4,10 @@ from fastapi.responses import JSONResponse
 from app.database import create_db_and_tables
 import time
 import asyncio
+from fastapi.staticfiles import StaticFiles
 
 #routers
-from app.routers import auth,workspace,board,schedule,file,activity
-
+from app.routers import auth, workspace, board, schedule, file, activity, user
 
 try:
     from vectorwave import initialize_database, generate_and_register_metadata
@@ -41,7 +41,7 @@ async def lifespan(app: FastAPI):
                     print("✅ [VectorWave] Connected successfully!", flush=True)
                     print("📝 [VectorWave] Syncing function metadata...", flush=True)
                     generate_and_register_metadata()
-                    break # 성공하면 루프 탈출
+                    break  # 성공하면 루프 탈출
 
             except Exception as e:
                 # 에러가 나도 죽지 않고 출력함
@@ -49,7 +49,7 @@ async def lifespan(app: FastAPI):
 
             # 실패 시 대기 (마지막 시도가 아닐 때만)
             if i < max_retries - 1:
-                print(f"⏳ [VectorWave] DB not ready. Retrying in 3s... ({i+1}/{max_retries})", flush=True)
+                print(f"⏳ [VectorWave] DB not ready. Retrying in 3s... ({i + 1}/{max_retries})", flush=True)
                 await asyncio.sleep(3)
 
         if not client:
@@ -68,6 +68,8 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+app.mount("/static", StaticFiles(directory="/app/uploads"), name="static")
+
 #routers
 app.include_router(auth.router, prefix="/api/auth")
 app.include_router(workspace.router, prefix="/api")
@@ -75,6 +77,8 @@ app.include_router(board.router, prefix="/api")
 app.include_router(schedule.router, prefix="/api")
 app.include_router(file.router, prefix="/api")
 app.include_router(activity.router, prefix="/api")
+app.include_router(user.router, prefix="/api")
+
 
 @app.get("/")
 def read_root():
