@@ -142,8 +142,10 @@ class FileResponse(BaseModel):
     # 가장 최신 버전을 보여주기 위해
     latest_version: Optional[FileVersionResponse] = None
 
+
 class CardCommentCreate(BaseModel):
     content: str
+
 
 class CardCommentResponse(BaseModel):
     id: int
@@ -153,7 +155,7 @@ class CardCommentResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    user: Optional[UserResponse] = None # 작성자 정보 포함
+    user: Optional[UserResponse] = None  # 작성자 정보 포함
 
 
 class CardResponse(BaseModel):
@@ -221,3 +223,54 @@ class ProjectEventResponse(BaseModel):
     end_datetime: datetime
     created_by: int
     created_at: datetime
+
+
+# [게시판 관련 스키마]
+class PostCreate(BaseModel):
+    title: str
+    content: str
+
+
+class PostUpdate(BaseModel):
+    title: Optional[str] = None
+    content: Optional[str] = None
+
+
+class PostCommentCreate(BaseModel):
+    content: str
+
+
+class PostCommentResponse(BaseModel):
+    id: int
+    post_id: int
+    user_id: int
+    content: str
+    created_at: datetime
+    user: Optional[UserResponse] = None  # 작성자 정보
+
+
+class PostResponse(BaseModel):
+    id: int
+    project_id: int
+    user_id: int
+    title: str
+    content: str
+    created_at: datetime
+    updated_at: datetime
+    user: Optional[UserResponse] = None  # 작성자 정보
+    # 목록 조회 시에는 댓글 수만 보여주는 등의 최적화가 필요할 수 있음
+    comments: List[PostCommentResponse] = []
+
+
+# [채팅 관련 스키마]
+class ChatMessageCreate(BaseModel):
+    content: str
+
+
+class ChatMessageResponse(BaseModel):
+    id: int
+    project_id: int
+    user_id: int
+    content: str
+    created_at: datetime
+    user: Optional[UserResponse] = None

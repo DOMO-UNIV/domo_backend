@@ -7,7 +7,7 @@ import asyncio
 from fastapi.staticfiles import StaticFiles
 
 #routers
-from app.routers import auth, workspace, board, schedule, file, activity, user, voice
+from app.routers import auth, workspace, board, schedule, file, activity, user, voice, chat, post
 
 try:
     from vectorwave import initialize_database, generate_and_register_metadata
@@ -79,6 +79,8 @@ app.include_router(file.router, prefix="/api")
 app.include_router(activity.router, prefix="/api")
 app.include_router(user.router, prefix="/api")
 app.include_router(voice.router)
+app.include_router(chat.router, prefix="/api")
+app.include_router(post.router, prefix="/api")
 
 
 @app.get("/")
