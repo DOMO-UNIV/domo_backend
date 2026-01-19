@@ -70,6 +70,7 @@ class CardCreate(BaseModel):
     assignee_ids: List[int] = []
     start_date: Optional[datetime] = None
     due_date: Optional[datetime] = None
+    card_type: str = "task"
 
 
 class CardUpdate(BaseModel):
@@ -82,6 +83,7 @@ class CardUpdate(BaseModel):
     assignee_ids: Optional[List[int]] = None
     start_date: Optional[datetime] = None
     due_date: Optional[datetime] = None
+    card_type: str = "task"
 
 
 # 2. 카드 응답 스키마 변경
@@ -160,6 +162,7 @@ class CardResponse(BaseModel):
     content: Optional[str] = None
     order: int
     column_id: int
+    card_type: str
     x: float
     y: float
     created_at: datetime

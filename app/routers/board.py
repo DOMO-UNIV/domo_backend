@@ -113,6 +113,19 @@ def get_board(project_id: int, db: Session = Depends(get_db)):
     return result
 
 
+@router.get("/projects/{project_id}/columns", response_model=List[BoardColumnResponse])
+def get_project_columns(
+        project_id: int,
+        db: Session = Depends(get_db)
+):
+    columns = db.exec(
+        select(BoardColumn)
+        .where(BoardColumn.project_id == project_id)
+        .order_by(BoardColumn.order)
+    ).all()
+    return columns
+
+
 @router.patch("/cards/{card_id}", response_model=CardResponse)
 @vectorize(search_description="Update card", capture_return_value=True, replay=True)  # 👈 추가
 def update_card(
