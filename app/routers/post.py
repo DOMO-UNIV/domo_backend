@@ -11,6 +11,7 @@ from app.schemas import PostCreate, PostUpdate, PostResponse, PostCommentCreate,
 
 router = APIRouter(tags=["Project Board"])
 
+
 # 1. 게시글 목록 조회
 @router.get("/projects/{project_id}/posts", response_model=List[PostResponse])
 def get_project_posts(project_id: int, db: Session = Depends(get_db)):
@@ -18,6 +19,7 @@ def get_project_posts(project_id: int, db: Session = Depends(get_db)):
         select(Post).where(Post.project_id == project_id).order_by(Post.created_at.desc())
     ).all()
     return posts
+
 
 # 2. 게시글 작성
 @router.post("/projects/{project_id}/posts", response_model=PostResponse)
@@ -34,6 +36,7 @@ def create_post(
     db.refresh(new_post)
     return new_post
 
+
 # 3. 게시글 상세 조회
 @router.get("/posts/{post_id}", response_model=PostResponse)
 def get_post(post_id: int, db: Session = Depends(get_db)):
@@ -41,6 +44,7 @@ def get_post(post_id: int, db: Session = Depends(get_db)):
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
     return post
+
 
 # 4. 게시글 삭제
 @router.delete("/posts/{post_id}")
@@ -53,6 +57,7 @@ def delete_post(post_id: int, user_id: int = Depends(get_current_user_id), db: S
     db.delete(post)
     db.commit()
     return {"message": "게시글이 삭제되었습니다."}
+
 
 # 5. 댓글 작성
 @router.post("/posts/{post_id}/comments", response_model=PostCommentResponse)
@@ -67,3 +72,21 @@ def create_post_comment(
     db.commit()
     db.refresh(comment)
     return comment
+
+
+@router.delete("/posts/comments/{comment_id}")
+def delete_post_comment(
+        comment_id: int,
+        user_id: int = Depends(get_current_user_id),
+        db: Session = Depends(get_db)
+):
+    comment = db.get(PostComment, comment_id)
+    if not comment:
+        raise HTTPException(status_code=404, detail="Comment not found")
+
+    if comment.user_id != user_id:
+        raise HTTPException(status_code=403, detail="작성자만 삭제할 수 있습니다.")
+
+    db.delete(comment)
+    db.commit()
+    return {"message": "댓글이 삭제되었습니다."}

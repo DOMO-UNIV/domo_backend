@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Optional
-from sqlmodel import SQLModel, Field
+from sqlmodel import SQLModel, Field, Relationship
+
 
 class ActivityLog(SQLModel, table=True):
     __tablename__ = "activity_logs"
@@ -14,3 +15,4 @@ class ActivityLog(SQLModel, table=True):
     action_type: str # 분류 (CREATE, UPDATE, DELETE, UPLOAD 등) - 필터링용
 
     created_at: datetime = Field(default_factory=datetime.now)
+    workspace: Optional["Workspace"] = Relationship(back_populates="activity_logs")

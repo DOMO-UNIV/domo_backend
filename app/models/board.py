@@ -35,6 +35,9 @@ class BoardColumn(SQLModel, table=True):
     project_id: int = Field(foreign_key="projects.id", index=True)
     created_at: datetime = Field(default_factory=datetime.now)
 
+    project: Optional["Project"] = Relationship(back_populates="columns")
+    cards: List["Card"] = Relationship(back_populates="column", sa_relationship_kwargs={"cascade": "all, delete"})
+
 
 # 2. 카드 (실제 할 일 / 포스트잇)
 class Card(SQLModel, table=True):
@@ -57,6 +60,9 @@ class Card(SQLModel, table=True):
 
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
+
+    column: Optional[BoardColumn] = Relationship(back_populates="cards")
+    comments: List["CardComment"] = Relationship(back_populates="card", sa_relationship_kwargs={"cascade": "all, delete"})
 
 
 class CardComment(SQLModel, table=True):

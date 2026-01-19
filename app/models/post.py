@@ -19,6 +19,8 @@ class Post(SQLModel, table=True):
     # 관계 설정
     comments: List["PostComment"] = Relationship(back_populates="post", sa_relationship_kwargs={"cascade": "all, delete"})
     user: Optional[User] = Relationship()
+    project: Optional["Project"] = Relationship(back_populates="posts")
+
 
 class PostComment(SQLModel, table=True):
     __tablename__ = "post_comments"

@@ -1,6 +1,7 @@
-from typing import Optional
+from typing import Optional,List
 from datetime import datetime
 from sqlmodel import SQLModel, Field
+from sqlmodel import SQLModel, Field, Relationship
 
 
 class User(SQLModel, table=True):
@@ -16,3 +17,4 @@ class User(SQLModel, table=True):
 
     last_active_at: datetime = Field(default_factory=datetime.now)
     created_at: datetime = Field(default_factory=datetime.now)
+    workspaces: List["WorkspaceMember"] = Relationship(back_populates="user", sa_relationship_kwargs={"cascade": "all, delete"})

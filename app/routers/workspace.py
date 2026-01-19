@@ -92,7 +92,7 @@ def get_my_workspaces(
 
 # 3. 프로젝트 생성 (워크스페이스 안에)
 @router.post("/workspaces/{workspace_id}/projects", response_model=ProjectResponse)
-@vectorize(search_description="Create project", capture_return_value=True, replay=True) # 👈 추가
+@vectorize(search_description="Create project", capture_return_value=True, replay=True)  # 👈 추가
 def create_project(
         workspace_id: int,
         project_data: ProjectCreate,
@@ -126,7 +126,7 @@ def create_project(
 
 
 @router.get("/workspaces/{workspace_id}/projects", response_model=List[ProjectResponse])
-@vectorize(search_description="List workspace projects", capture_return_value=True, replay=True) # 👈 추가
+@vectorize(search_description="List workspace projects", capture_return_value=True, replay=True)  # 👈 추가
 def get_workspace_projects(
         workspace_id: int,
         user_id: int = Depends(get_current_user_id),
@@ -146,7 +146,7 @@ def get_workspace_projects(
 
 # 5. 워크스페이스에 팀원 초대 (이메일로 추가)
 @router.post("/workspaces/{workspace_id}/members")
-@vectorize(search_description="Add member manually", capture_return_value=True, replay=True) # 👈 추가
+@vectorize(search_description="Add member manually", capture_return_value=True, replay=True)  # 👈 추가
 def add_workspace_member(
         workspace_id: int,
         request: AddMemberRequest,
@@ -194,7 +194,7 @@ def add_workspace_member(
 
 # 6. 워크스페이스 전체 멤버 목록 조회
 @router.get("/workspaces/{workspace_id}/members", response_model=List[WorkspaceMemberResponse])
-@vectorize(search_description="List workspace members", capture_return_value=True, replay=True) # 👈 추가
+@vectorize(search_description="List workspace members", capture_return_value=True, replay=True)  # 👈 추가
 def get_workspace_members(
         workspace_id: int,
         user_id: int = Depends(get_current_user_id),
@@ -227,7 +227,7 @@ def get_workspace_members(
 
 
 @router.get("/workspaces/{workspace_id}/online-members", response_model=List[UserResponse])
-@vectorize(search_description="Get online members", capture_return_value=True, replay=True) # 👈 추가
+@vectorize(search_description="Get online members", capture_return_value=True, replay=True)  # 👈 추가
 def get_online_members(
         workspace_id: int,
         user_id: int = Depends(get_current_user_id),
@@ -254,7 +254,7 @@ def get_online_members(
 
 
 @router.post("/workspaces/{workspace_id}/invitations", response_model=InvitationResponse)
-@vectorize(search_description="Generate invitation link", capture_return_value=True, replay=True) # 👈 추가
+@vectorize(search_description="Generate invitation link", capture_return_value=True, replay=True)  # 👈 추가
 def create_invitation(
         workspace_id: int,
         invite_data: InvitationCreate,
@@ -290,7 +290,7 @@ def create_invitation(
 
 # 9. [신규] 초대 링크 수락하기
 @router.post("/invitations/{token}/accept")
-@vectorize(search_description="Accept invitation", capture_return_value=True, replay=True) # 👈 추가
+@vectorize(search_description="Accept invitation", capture_return_value=True, replay=True)  # 👈 추가
 def accept_invitation(
         token: str,
         user_id: int = Depends(get_current_user_id),
@@ -331,3 +331,82 @@ def accept_invitation(
     )
 
     return {"message": "워크스페이스에 성공적으로 참여했습니다!"}
+
+
+@router.delete("/workspaces/{workspace_id}")
+def delete_workspace(
+        workspace_id: int,
+        user_id: int = Depends(get_current_user_id),
+        db: Session = Depends(get_db)
+):
+    workspace = db.get(Workspace, workspace_id)
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+
+    if workspace.owner_id != user_id:
+        raise HTTPException(status_code=403, detail="워크스페이스 소유자만 삭제할 수 있습니다.")
+
+    db.delete(workspace)
+    db.commit()
+    return {"message": "워크스페이스가 삭제되었습니다."}
+
+
+# 2. 프로젝트 삭제
+@router.delete("/projects/{project_id}")
+def delete_project(
+        project_id: int,
+        user_id: int = Depends(get_current_user_id),
+        db: Session = Depends(get_db)
+):
+    project = db.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # 권한 체크: 워크스페이스 소유자만 삭제 가능하도록 설정 (필요시 로직 변경 가능)
+    workspace = db.get(Workspace, project.workspace_id)
+    if workspace.owner_id != user_id:
+        raise HTTPException(status_code=403, detail="워크스페이스 소유자만 프로젝트를 삭제할 수 있습니다.")
+
+    db.delete(project)
+    db.commit()
+    return {"message": "프로젝트가 삭제되었습니다."}
+
+
+# 3. 워크스페이스 멤버 삭제 (강퇴 또는 본인 탈퇴)
+@router.delete("/workspaces/{workspace_id}/members/{target_user_id}")
+def remove_workspace_member(
+        workspace_id: int,
+        target_user_id: int,
+        user_id: int = Depends(get_current_user_id),
+        db: Session = Depends(get_db)
+):
+    # 1. 워크스페이스 확인
+    workspace = db.get(Workspace, workspace_id)
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+
+    # 2. 권한 확인
+    # - 소유자는 누구든 내보낼 수 있음
+    # - 일반 멤버는 '자기 자신'만 나갈 수 있음 (탈퇴)
+    if workspace.owner_id != user_id and user_id != target_user_id:
+        raise HTTPException(status_code=403, detail="권한이 없습니다.")
+
+    # - 소유자는 스스로 탈퇴 불가능 (워크스페이스를 삭제하거나 소유권을 넘겨야 함)
+    if workspace.owner_id == target_user_id:
+        raise HTTPException(status_code=400, detail="소유자는 탈퇴할 수 없습니다. 워크스페이스를 삭제해주세요.")
+
+    # 3. 멤버 조회 및 삭제
+    member = db.exec(
+        select(WorkspaceMember)
+        .where(WorkspaceMember.workspace_id == workspace_id)
+        .where(WorkspaceMember.user_id == target_user_id)
+    ).first()
+
+    if not member:
+        raise HTTPException(status_code=404, detail="해당 멤버를 찾을 수 없습니다.")
+
+    db.delete(member)
+    db.commit()
+
+    action = "탈퇴" if user_id == target_user_id else "강퇴"
+    return {"message": f"멤버가 성공적으로 {action}처리 되었습니다."}

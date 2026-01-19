@@ -1,6 +1,6 @@
 from typing import Optional
 from datetime import time, datetime
-from sqlmodel import SQLModel, Field
+from sqlmodel import SQLModel, Field, Relationship
 
 
 class Schedule(SQLModel, table=True):
@@ -29,3 +29,4 @@ class ProjectEvent(SQLModel, table=True):
 
     created_by: int = Field(foreign_key="users.id")
     created_at: datetime = Field(default_factory=datetime.now)
+    project: Optional["Project"] = Relationship(back_populates="events")

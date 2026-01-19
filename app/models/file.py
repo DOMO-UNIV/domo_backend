@@ -19,6 +19,7 @@ class FileMetadata(SQLModel, table=True):
     cards: List[Card] = Relationship(link_model=CardFileLink, back_populates="files")
 
     versions: List["FileVersion"] = Relationship(back_populates="file_metadata")
+    project: Optional["Project"] = Relationship(back_populates="files")
 
     # ✅ [추가 2] "최신 버전"을 자동으로 계산하는 프로퍼티
     # 스키마(FileResponse)가 'latest_version'이라는 이름을 찾을 때 이 함수가 실행됩니다.
