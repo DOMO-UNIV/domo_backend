@@ -15,39 +15,94 @@ from app.models.file import FileMetadata
 from app.models.board import CardFileLink, CardComment, CardDependency
 from app.schemas import FileResponse
 from vectorwave import *
-from app.schemas import CardConnectionCreate, CardConnectionResponse
+from app.schemas import CardConnectionCreate, CardConnectionResponse, TransformSchema
 
 router = APIRouter(tags=["Board & Cards"])
 
 
 # 1. 컬럼 생성
 @router.post("/projects/{project_id}/columns", response_model=BoardColumnResponse)
-@vectorize(search_description="Create board column", capture_return_value=True, replay=True)  # 👈 추가
-def create_column(project_id: int, col_data: BoardColumnCreate, user_id: int = Depends(get_current_user_id),
-                  db: Session = Depends(get_db)):
+@vectorize(search_description="Create board column (Group)", capture_return_value=True, replay=True)
+def create_column(
+        project_id: int,
+        col_data: BoardColumnCreate,
+        user_id: int = Depends(get_current_user_id),
+        db: Session = Depends(get_db)
+):
     project = db.get(Project, project_id)
-    if not project: raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없습니다.")
+    if not project: raise HTTPException(status_code=404, detail="Project not found")
 
-    # 워크스페이스 멤버 권한 확인 로직 생략(필요 시 추가)
+    # DB 모델 생성 (col_data의 alias들이 자동으로 매핑됨)
+    # by_alias=False로 해야 파이썬 변수명(local_x)으로 덤프됨
+    new_col = BoardColumn(
+        **col_data.model_dump(by_alias=False),
+        project_id=project_id
+    )
 
-    new_col = BoardColumn(**col_data.model_dump(), project_id=project_id)
     db.add(new_col)
     db.commit()
     db.refresh(new_col)
 
-    user = db.get(User, user_id)
-    # Project를 조회해서 workspace_id를 알아냄
-    project = db.get(Project, project_id)
-
-    log_activity(
-        db=db,
-        user_id=user_id,
-        workspace_id=project.workspace_id,
-        action_type="CREATE",
-        content=f"📋 '{user.name}'님이 '{project.name}' 프로젝트에 '{new_col.title}' 컬럼을 생성했습니다."
+    # 응답 객체 수동 구성 (transform 조립)
+    return BoardColumnResponse(
+        id=new_col.id,
+        title=new_col.title,
+        local_x=new_col.local_x,
+        local_y=new_col.local_y,
+        width=new_col.width,
+        height=new_col.height,
+        parent_id=new_col.parent_id,
+        depth=new_col.depth,
+        color=new_col.color,
+        collapsed=new_col.collapsed,
+        order=new_col.order,
+        project_id=new_col.project_id,
+        transform=TransformSchema(
+            scaleX=new_col.scale_x,
+            scaleY=new_col.scale_y,
+            rotation=new_col.rotation
+        )
     )
 
-    return new_col
+@router.patch("/columns/{column_id}", response_model=BoardColumnResponse)
+@vectorize(search_description="Update board column (Group)", capture_return_value=True)
+def update_column(
+        column_id: int,
+        col_data: BoardColumnCreate, # Create 모델 재활용 (Optional로 만드는게 정석이지만 편의상)
+        db: Session = Depends(get_db)
+):
+    col = db.get(BoardColumn, column_id)
+    if not col:
+        raise HTTPException(status_code=404, detail="Column not found")
+
+    # 입력된 값만 업데이트
+    data = col_data.model_dump(exclude_unset=True, by_alias=False)
+    for key, value in data.items():
+        setattr(col, key, value)
+
+    db.add(col)
+    db.commit()
+    db.refresh(col)
+
+    return BoardColumnResponse(
+        id=col.id,
+        title=col.title,
+        local_x=col.local_x,
+        local_y=col.local_y,
+        width=col.width,
+        height=col.height,
+        parent_id=col.parent_id,
+        depth=col.depth,
+        color=col.color,
+        collapsed=col.collapsed,
+        order=col.order,
+        project_id=col.project_id,
+        transform=TransformSchema(
+            scaleX=col.scale_x,
+            scaleY=col.scale_y,
+            rotation=col.rotation
+        )
+    )
 
 
 @router.post("/projects/{project_id}/cards", response_model=CardResponse)

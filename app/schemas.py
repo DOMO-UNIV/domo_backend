@@ -50,14 +50,48 @@ class ProjectResponse(BaseModel):
 
 class BoardColumnCreate(BaseModel):
     title: str
-    order: Optional[int] = 0
+
+    # 프론트엔드 변수명(camelCase) -> 백엔드 변수명(snake_case) 매핑
+    local_x: float = PydanticField(alias="localX", default=0.0)
+    local_y: float = PydanticField(alias="localY", default=0.0)
+    width: float = 300.0
+    height: float = 500.0
+
+    parent_id: Optional[int] = PydanticField(alias="parentId", default=None)
+    depth: int = 0
+
+    # UI 속성
+    color: Optional[str] = "#ffffff"
+    collapsed: bool = False
+    order: int = 0
+
+class TransformSchema(BaseModel):
+    scaleX: float
+    scaleY: float
+    rotation: float
 
 
 class BoardColumnResponse(BaseModel):
     id: int
     title: str
+
+    # 백엔드 데이터 -> 프론트엔드 JSON 키 이름 변경
+    local_x: float = PydanticField(serialization_alias="localX")
+    local_y: float = PydanticField(serialization_alias="localY")
+    width: float
+    height: float
+
+    parent_id: Optional[int] = PydanticField(serialization_alias="parentId")
+    depth: int
+
+    color: Optional[str]
+    collapsed: bool
     order: int
-    project_id: int
+    project_id: int = PydanticField(serialization_alias="boardId") # project_id -> boardId
+
+    # Transform 객체 조립 (DB 필드 3개 -> 객체 1개)
+    # Pydantic v2 computed_field를 쓰거나, 아래처럼 별도 필드로 정의 후 router에서 조립
+    transform: Optional[TransformSchema] = None
 
 
 #todo orders 필드는 추후 라벨로 처리

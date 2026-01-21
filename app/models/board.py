@@ -2,6 +2,7 @@ from typing import Optional, List
 from datetime import datetime
 from sqlmodel import SQLModel, Field, Relationship
 from app.models.user import User
+from sqlalchemy import ForeignKey # 순환 참조용
 
 
 class CardFileLink(SQLModel, table=True):
@@ -35,13 +36,60 @@ class CardDependency(SQLModel, table=True):
 class BoardColumn(SQLModel, table=True):
     __tablename__ = "board_columns"
 
+    # ========================================
+    # 기본 식별자
+    # ========================================
     id: Optional[int] = Field(default=None, primary_key=True)
     title: str
-    order: int = Field(default=0)  # 컬럼 순서
+
+    # ========================================
+    # 상대 좌표 시스템 & 크기
+    # ========================================
+    local_x: float = Field(default=0.0)
+    local_y: float = Field(default=0.0)
+    width: float = Field(default=300.0)  # 기본 너비
+    height: float = Field(default=500.0) # 기본 높이
+
+    # ========================================
+    # 계층 구조 (중첩 그룹 지원)
+    # ========================================
+    # 자기 자신을 참조 (Self-Referencing)
+    parent_id: Optional[int] = Field(
+        default=None,
+        sa_column_kwargs={"foreign_key": ForeignKey("board_columns.id")}
+    )
+    depth: int = Field(default=0) # 0: 최상위, 1: 1단계...
+
+    # ========================================
+    # 변환 (Transform)
+    # ========================================
+    scale_x: float = Field(default=1.0)
+    scale_y: float = Field(default=1.0)
+    rotation: float = Field(default=0.0)
+
+    # ========================================
+    # UI 표시 속성
+    # ========================================
+    color: Optional[str] = Field(default="#ffffff") # 기본 흰색
+    collapsed: bool = Field(default=False)
+    order: int = Field(default=0)
+
+    # ========================================
+    # 연결 정보
+    # ========================================
     project_id: int = Field(foreign_key="projects.id", index=True)
     created_at: datetime = Field(default_factory=datetime.now)
 
+    # 관계 설정
     project: Optional["Project"] = Relationship(back_populates="columns")
+
+    # 부모-자식 관계 설정 (Adjacency List Pattern)
+    parent: Optional["BoardColumn"] = Relationship(
+        sa_relationship_kwargs={"remote_side": "BoardColumn.id"},
+        back_populates="children"
+    )
+    children: List["BoardColumn"] = Relationship(back_populates="parent")
+
     cards: List["Card"] = Relationship(back_populates="column", sa_relationship_kwargs={"cascade": "all, delete"})
 
 
