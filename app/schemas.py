@@ -1,7 +1,7 @@
 from pydantic import BaseModel, EmailStr
 from datetime import time as dt_time, datetime
 from typing import Optional, List
-
+from pydantic import Field as PydanticField # 👈 별칭 사용을 위해 필요
 
 # data for register
 class UserCreate(BaseModel):
@@ -302,3 +302,19 @@ class ProjectEventUpdate(BaseModel):
     description: Optional[str] = None
     start_datetime: Optional[datetime] = None
     end_datetime: Optional[datetime] = None
+
+# 🔗 [수정] 카드 연결 생성 요청
+class CardConnectionCreate(BaseModel):
+    from_card_id: int = PydanticField(alias="from") # 프론트에서 { "from": 1, ... } 로 보냄
+    to_card_id: int = PydanticField(alias="to")
+    style: Optional[str] = "solid"
+    shape: Optional[str] = "bezier"
+
+# 🔗 [수정] 카드 연결 응답 (프론트엔드 인터페이스와 100% 일치)
+class CardConnectionResponse(BaseModel):
+    id: int
+    from_card_id: int = PydanticField(serialization_alias="from") # JSON 나갈때 "from"으로 변환
+    to_card_id: int = PydanticField(serialization_alias="to")     # JSON 나갈때 "to"로 변환
+    board_id: int = PydanticField(serialization_alias="boardId")  # JSON 나갈때 "boardId"로 변환
+    style: str
+    shape: str

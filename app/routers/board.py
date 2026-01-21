@@ -12,9 +12,10 @@ from app.utils.logger import log_activity
 from app.models.user import User
 from app.models.workspace import Project
 from app.models.file import FileMetadata
-from app.models.board import CardFileLink, CardComment
+from app.models.board import CardFileLink, CardComment, CardDependency
 from app.schemas import FileResponse
 from vectorwave import *
+from app.schemas import CardConnectionCreate, CardConnectionResponse
 
 router = APIRouter(tags=["Board & Cards"])
 
@@ -305,3 +306,108 @@ def delete_comment(
     db.delete(comment)
     db.commit()
     return {"message": "댓글이 삭제되었습니다."}
+
+# 1. 프로젝트 내 모든 카드 연결 조회 (프론트엔드 포맷 맞춤)
+@router.get("/projects/{project_id}/connections", response_model=List[CardConnectionResponse])
+@vectorize(search_description="Get project card connections", capture_return_value=True)
+def get_project_connections(
+        project_id: int,
+        db: Session = Depends(get_db)
+):
+    """
+    프론트엔드 인터페이스 {id, from, to, boardId, style, shape} 에 맞춰 반환합니다.
+    """
+    # 1. 해당 프로젝트에 속한 연결만 조회 (Join)
+    statement = (
+        select(CardDependency)
+        .join(Card, CardDependency.from_card_id == Card.id)
+        .join(BoardColumn, Card.column_id == BoardColumn.id)
+        .where(BoardColumn.project_id == project_id)
+    )
+    connections = db.exec(statement).all()
+
+    # 2. 응답 데이터 변환 (boardId 주입)
+    # CardDependency 모델에는 board_id가 없으므로, project_id를 boardId로 매핑해줍니다.
+    results = []
+    for conn in connections:
+        results.append(CardConnectionResponse(
+            id=conn.id,
+            from_card_id=conn.from_card_id,
+            to_card_id=conn.to_card_id,
+            board_id=project_id, # 현재 프로젝트 ID를 boardId로 사용
+            style=conn.style,
+            shape=conn.shape
+        ))
+
+    return results
+
+
+# 2. 카드 연결 생성
+@router.post("/cards/connections", response_model=CardConnectionResponse)
+@vectorize(search_description="Create card connection", capture_return_value=True)
+def create_card_connection(
+        conn_data: CardConnectionCreate,
+        db: Session = Depends(get_db),
+        user_id: int = Depends(get_current_user_id)
+):
+    # 유효성 검사 등은 기존과 동일...
+    card_from = db.get(Card, conn_data.from_card_id)
+    if not card_from: raise HTTPException(status_code=404, detail="Source card not found")
+
+    # boardId(project_id) 역추적
+    column = db.get(BoardColumn, card_from.column_id)
+    project_id = column.project_id
+
+    # 중복 체크 (from, to가 같은게 있는지)
+    existing = db.exec(
+        select(CardDependency)
+        .where(CardDependency.from_card_id == conn_data.from_card_id)
+        .where(CardDependency.to_card_id == conn_data.to_card_id)
+    ).first()
+
+    if existing:
+        return CardConnectionResponse(
+            id=existing.id,
+            from_card_id=existing.from_card_id,
+            to_card_id=existing.to_card_id,
+            board_id=project_id,
+            style=existing.style,
+            shape=existing.shape
+        )
+
+    # 저장
+    new_conn = CardDependency(
+        from_card_id=conn_data.from_card_id,
+        to_card_id=conn_data.to_card_id,
+        style=conn_data.style,
+        shape=conn_data.shape
+    )
+    db.add(new_conn)
+    db.commit()
+    db.refresh(new_conn)
+
+    return CardConnectionResponse(
+        id=new_conn.id,
+        from_card_id=new_conn.from_card_id,
+        to_card_id=new_conn.to_card_id,
+        board_id=project_id,
+        style=new_conn.style,
+        shape=new_conn.shape
+    )
+
+# 3. 카드 연결 삭제 (ID로 삭제)
+@router.delete("/cards/connections/{connection_id}")
+@vectorize(search_description="Delete card connection", capture_return_value=True)
+def delete_card_connection(
+        connection_id: int,
+        db: Session = Depends(get_db),
+        user_id: int = Depends(get_current_user_id)
+):
+    connection = db.get(CardDependency, connection_id)
+    if not connection:
+        raise HTTPException(status_code=404, detail="Connection not found")
+
+    db.delete(connection)
+    db.commit()
+
+    return {"message": "연결이 삭제되었습니다."}

@@ -19,10 +19,16 @@ class CardAssignee(SQLModel, table=True):
 class CardDependency(SQLModel, table=True):
     __tablename__ = "card_dependencies"
 
-    # 선의 시작점 (From)
-    from_card_id: int = Field(foreign_key="cards.id", primary_key=True)
-    # 선의 도착점 (To)
-    to_card_id: int = Field(foreign_key="cards.id", primary_key=True)
+    # 고유 ID 추가
+    id: Optional[int] = Field(default=None, primary_key=True)
+
+    # 연결 정보
+    from_card_id: int = Field(foreign_key="cards.id")
+    to_card_id: int = Field(foreign_key="cards.id")
+
+    # 스타일 정보 (기본값 설정)
+    style: str = Field(default="solid")   # solid, dashed, dotted
+    shape: str = Field(default="bezier")  # bezier, straight, step
 
 
 # 1. 보드 컬럼 (예: 할 일, 진행 중, 완료)
