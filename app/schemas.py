@@ -65,6 +65,8 @@ class BoardColumnCreate(BaseModel):
     collapsed: bool = False
     order: int = 0
 
+
+
 class TransformSchema(BaseModel):
     scaleX: float
     scaleY: float
@@ -353,3 +355,30 @@ class CardConnectionResponse(BaseModel):
     board_id: int = PydanticField(serialization_alias="boardId")  # JSON 나갈때 "boardId"로 변환
     style: str
     shape: str
+
+
+class TransformInput(BaseModel):
+    scaleX: Optional[float] = 1.0
+    scaleY: Optional[float] = 1.0
+    rotation: Optional[float] = 0.0
+
+class BoardColumnUpdate(BaseModel):
+    title: Optional[str] = None
+
+    # 위치 & 크기
+    local_x: Optional[float] = PydanticField(alias="localX", default=None)
+    local_y: Optional[float] = PydanticField(alias="localY", default=None)
+    width: Optional[float] = None
+    height: Optional[float] = None
+
+    # 계층 구조
+    parent_id: Optional[int] = PydanticField(alias="parentId", default=None)
+    depth: Optional[int] = None
+
+    # 스타일
+    color: Optional[str] = None
+    collapsed: Optional[bool] = None
+    order: Optional[int] = None
+
+    # 변환 (프론트엔드 { transform: { ... } } 구조 대응)
+    transform: Optional[TransformInput] = None

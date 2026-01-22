@@ -6,7 +6,7 @@ from app.routers.workspace import get_current_user_id  # 기존 인증 함수 �
 from app.models.board import BoardColumn, Card, CardAssignee
 from app.models.workspace import Project, WorkspaceMember
 from app.schemas import BoardColumnCreate, BoardColumnResponse, CardCreate, CardResponse, CardUpdate, CardCommentCreate, \
-    CardCommentResponse
+    CardCommentResponse, BoardColumnUpdate
 from datetime import datetime
 from app.utils.logger import log_activity
 from app.models.user import User
@@ -74,21 +74,27 @@ def create_column(
 @vectorize(search_description="Update board column (Group)", capture_return_value=True)
 def update_column(
         column_id: int,
-        col_data: BoardColumnCreate, # Create 모델 재활용 (Optional로 만드는게 정석이지만 편의상)
+        col_data: BoardColumnUpdate,
         db: Session = Depends(get_db)
 ):
     col = db.get(BoardColumn, column_id)
     if not col:
         raise HTTPException(status_code=404, detail="Column not found")
 
-    if col_data.parent_id == 0:
-        col_data.parent_id = None
+    # 1. 일반 필드 업데이트 (transform 제외)
+    # exclude_unset=True: 프론트에서 보내지 않은 필드는 건드리지 않음 (핵심!)
+    update_dict = col_data.model_dump(exclude_unset=True, by_alias=False, exclude={"transform"})
 
-    # 입력된 값만 업데이트
-    data = col_data.model_dump(exclude_unset=True, by_alias=False)
-    for key, value in data.items():
+    for key, value in update_dict.items():
         setattr(col, key, value)
 
+    # 2. Transform 객체 별도 처리 (들어왔을 경우에만)
+    if col_data.transform:
+        if col_data.transform.scaleX is not None: col.scale_x = col_data.transform.scaleX
+        if col_data.transform.scaleY is not None: col.scale_y = col_data.transform.scaleY
+        if col_data.transform.rotation is not None: col.rotation = col_data.transform.rotation
+
+    # 3. parent_id가 0으로 들어오면 None으로 보정 (최상위 이동 시)
     if col.parent_id == 0:
         col.parent_id = None
 
@@ -96,6 +102,7 @@ def update_column(
     db.commit()
     db.refresh(col)
 
+    # 응답 조립
     return BoardColumnResponse(
         id=col.id,
         title=col.title,
