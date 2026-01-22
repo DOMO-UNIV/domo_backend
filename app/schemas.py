@@ -357,8 +357,8 @@ class CardConnectionResponse(BaseModel):
     board_id: int = PydanticField(serialization_alias="boardId")  # JSON 나갈때 "boardId"로 변환
     style: str
     shape: str
-    source_handle: Optional[str] = PydanticField(alias="sourceHandle", default=None)
-    target_handle: Optional[str] = PydanticField(alias="targetHandle", default=None)
+    source_handle: Optional[str] = PydanticField(serialization_alias="sourceHandle", default=None)
+    target_handle: Optional[str] = PydanticField(serialization_alias="targetHandle", default=None)
 
 
 class TransformInput(BaseModel):
