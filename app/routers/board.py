@@ -537,58 +537,57 @@ def get_project_connections(
     return results
 
 
-# 2. 카드 연결 생성
-@router.post("/cards/connections", response_model=CardConnectionResponse)
-@vectorize(search_description="Create card connection", capture_return_value=True)
+@router.post("/cards/connections")
+@vectorize(search_description="Create dependency between cards", capture_return_value=True)
 def create_card_connection(
-        conn_data: CardConnectionCreate,
-        db: Session = Depends(get_db),
-        user_id: int = Depends(get_current_user_id)
+        connection_data: CardConnectionCreate,
+        user_id: int = Depends(get_current_user_id),
+        db: Session = Depends(get_db)
 ):
-    # 유효성 검사 등은 기존과 동일...
-    card_from = db.get(Card, conn_data.from_card_id)
-    if not card_from: raise HTTPException(status_code=404, detail="Source card not found")
+    # 1. 카드 조회
+    from_card = db.get(Card, connection_data.from_card_id)
+    to_card = db.get(Card, connection_data.to_card_id)
 
-    # boardId(project_id) 역추적
-    column = db.get(BoardColumn, card_from.column_id)
-    project_id = column.project_id
+    if not from_card or not to_card:
+        raise HTTPException(status_code=404, detail="카드를 찾을 수 없습니다.")
 
-    # 중복 체크 (from, to가 같은게 있는지)
-    existing = db.exec(
-        select(CardDependency)
-        .where(CardDependency.from_card_id == conn_data.from_card_id)
-        .where(CardDependency.to_card_id == conn_data.to_card_id)
-    ).first()
+    # 2. 프로젝트 일치 확인
+    if from_card.project_id != to_card.project_id:
+        raise HTTPException(status_code=400, detail="다른 프로젝트의 카드끼리는 연결할 수 없습니다.")
 
-    if existing:
-        return CardConnectionResponse(
-            id=existing.id,
-            from_card_id=existing.from_card_id,
-            to_card_id=existing.to_card_id,
-            board_id=project_id,
-            style=existing.style,
-            shape=existing.shape
-        )
+    # 3. 연결 생성 (수정됨)
+    new_dependency = CardDependency(
+        from_card_id=from_card.id,
+        to_card_id=to_card.id,
 
-    # 저장
-    new_conn = CardDependency(
-        from_card_id=conn_data.from_card_id,
-        to_card_id=conn_data.to_card_id,
-        style=conn_data.style,
-        shape=conn_data.shape
+        # 🚨 [수정] 스키마에 없는 값을 읽으려던 코드 제거
+        # dependency_type=connection_data.dependency_type  <-- (삭제)
+
+        # ✅ [대체] 기본값으로 고정하거나, 필요하면 스키마에 추가해야 함
+        dependency_type="finish_to_start"
     )
-    db.add(new_conn)
+
+    # (선택 사항) 만약 DB 모델(CardDependency)에 style, shape 필드가 있다면 아래처럼 저장 가능
+    # if hasattr(new_dependency, "style"): new_dependency.style = connection_data.style
+    # if hasattr(new_dependency, "shape"): new_dependency.shape = connection_data.shape
+
+    db.add(new_dependency)
     db.commit()
-    db.refresh(new_conn)
+    db.refresh(new_dependency)
 
-    return CardConnectionResponse(
-        id=new_conn.id,
-        from_card_id=new_conn.from_card_id,
-        to_card_id=new_conn.to_card_id,
-        board_id=project_id,
-        style=new_conn.style,
-        shape=new_conn.shape
+    # 4. 로그 기록
+    project = db.get(Project, from_card.project_id)
+    user = db.get(User, user_id)
+
+    log_activity(
+        db=db,
+        user_id=user_id,
+        workspace_id=project.workspace_id,
+        action_type="UPDATE",
+        content=f"🔗 '{user.name}'님이 카드 '{from_card.title}'와(과) '{to_card.title}'을(를) 연결했습니다."
     )
+
+    return {"message": "카드가 연결되었습니다."}
 
 # 3. 카드 연결 삭제 (ID로 삭제)
 @router.delete("/cards/connections/{connection_id}")
