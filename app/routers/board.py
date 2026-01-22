@@ -431,18 +431,6 @@ def detach_file_from_card(
     return {"message": "파일 연결이 해제되었습니다."}
 
 
-@router.get("/cards/{card_id}", response_model=CardResponse)
-@vectorize(search_description="Get card details", capture_return_value=True, replay=True)  # 👈 추가
-def get_card(
-        card_id: int,
-        db: Session = Depends(get_db)
-):
-    card = db.get(Card, card_id)
-    if not card:
-        raise HTTPException(status_code=404, detail="카드를 찾을 수 없습니다.")
-
-    return card
-
 
 @router.post("/cards/{card_id}/comments", response_model=CardCommentResponse)
 @vectorize(search_description="Add comment to card", capture_return_value=True)
@@ -582,6 +570,18 @@ def create_card_connection(
     )
 
     return {"message": "카드가 연결되었습니다."}
+
+@router.get("/cards/{card_id}", response_model=CardResponse)
+@vectorize(search_description="Get card details", capture_return_value=True, replay=True)  # 👈 추가
+def get_card(
+        card_id: int,
+        db: Session = Depends(get_db)
+):
+    card = db.get(Card, card_id)
+    if not card:
+        raise HTTPException(status_code=404, detail="카드를 찾을 수 없습니다.")
+
+    return card
 
 # 3. 카드 연결 삭제 (ID로 삭제)
 @router.delete("/cards/connections/{connection_id}")
