@@ -31,6 +31,9 @@ class CardDependency(SQLModel, table=True):
     style: str = Field(default="solid")   # solid, dashed, dotted
     shape: str = Field(default="bezier")  # bezier, straight, step
 
+    source_handle: Optional[str] = Field(default=None)
+    target_handle: Optional[str] = Field(default=None)
+
 
 # 1. 보드 컬럼 (예: 할 일, 진행 중, 완료)
 class BoardColumn(SQLModel, table=True):

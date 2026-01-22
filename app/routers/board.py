@@ -173,7 +173,9 @@ def get_project_connections(project_id: int, db: Session = Depends(get_db)):
             to_card_id=conn.to_card_id,
             board_id=project_id,
             style=conn.style if hasattr(conn, 'style') else "solid",
-            shape=conn.shape if hasattr(conn, 'shape') else "bezier"
+            shape=conn.shape if hasattr(conn, 'shape') else "bezier",
+            source_handle=conn.source_handle,
+            target_handle=conn.target_handle
         ))
     return results
 
@@ -200,7 +202,9 @@ def create_card_connection(
         to_card_id=to_card.id,
         dependency_type="finish_to_start", # 기본값
         style="solid",   # 기본값 (필요시 connection_data에서 받아오도록 수정 가능)
-        shape="bezier"   # 기본값
+        shape="bezier",   # 기본값
+        source_handle=connection_data.source_handle,
+        target_handle=connection_data.target_handle
     )
 
     # 만약 프론트에서 style/shape를 보내준다면 여기서 덮어쓰기
@@ -229,7 +233,9 @@ def create_card_connection(
         to_card_id=new_dependency.to_card_id,
         board_id=from_card.project_id,
         style=new_dependency.style,
-        shape=new_dependency.shape
+        shape=new_dependency.shape,
+        source_handle=new_dependency.source_handle,
+        target_handle=new_dependency.target_handle
     )
 
 @router.delete("/cards/connections/{connection_id}")

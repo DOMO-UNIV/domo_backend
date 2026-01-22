@@ -346,6 +346,8 @@ class CardConnectionCreate(BaseModel):
     to_card_id: int = PydanticField(alias="to")
     style: Optional[str] = "solid"
     shape: Optional[str] = "bezier"
+    source_handle: Optional[str] = PydanticField(alias="sourceHandle", default=None)
+    target_handle: Optional[str] = PydanticField(alias="targetHandle", default=None)
 
 # 🔗 [수정] 카드 연결 응답 (프론트엔드 인터페이스와 100% 일치)
 class CardConnectionResponse(BaseModel):
@@ -355,6 +357,8 @@ class CardConnectionResponse(BaseModel):
     board_id: int = PydanticField(serialization_alias="boardId")  # JSON 나갈때 "boardId"로 변환
     style: str
     shape: str
+    source_handle: Optional[str] = PydanticField(alias="sourceHandle", default=None)
+    target_handle: Optional[str] = PydanticField(alias="targetHandle", default=None)
 
 
 class TransformInput(BaseModel):
