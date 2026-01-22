@@ -32,12 +32,18 @@ def create_column(
     project = db.get(Project, project_id)
     if not project: raise HTTPException(status_code=404, detail="Project not found")
 
+    if col_data.parent_id == 0:
+        col_data.parent_id = None
+
     # DB 모델 생성 (col_data의 alias들이 자동으로 매핑됨)
     # by_alias=False로 해야 파이썬 변수명(local_x)으로 덤프됨
     new_col = BoardColumn(
         **col_data.model_dump(by_alias=False),
         project_id=project_id
     )
+
+    if new_col.parent_id == 0:
+        new_col.parent_id = None
 
     db.add(new_col)
     db.commit()
@@ -75,10 +81,16 @@ def update_column(
     if not col:
         raise HTTPException(status_code=404, detail="Column not found")
 
+    if col_data.parent_id == 0:
+        col_data.parent_id = None
+
     # 입력된 값만 업데이트
     data = col_data.model_dump(exclude_unset=True, by_alias=False)
     for key, value in data.items():
         setattr(col, key, value)
+
+    if col.parent_id == 0:
+        col.parent_id = None
 
     db.add(col)
     db.commit()
@@ -172,6 +184,55 @@ def create_card(
     )
 
     return new_card
+
+@router.delete("/columns/{column_id}")
+@vectorize(search_description="Delete board column (Preserve cards)", capture_return_value=True)
+def delete_column(
+        column_id: int,
+        user_id: int = Depends(get_current_user_id),
+        db: Session = Depends(get_db)
+):
+    """
+    컬럼(그룹)을 삭제합니다.
+    ✅ 변경점: 컬럼 안에 있던 카드들은 삭제되지 않고 '백로그(Unassigned)' 상태로 변경됩니다.
+    """
+    # 1. 컬럼 조회
+    column = db.get(BoardColumn, column_id)
+    if not column:
+        raise HTTPException(status_code=404, detail="Column not found")
+
+    project = db.get(Project, column.project_id)
+    col_title = column.title
+    card_count = len(column.cards)
+
+    # 2. [핵심] 카드 대피시키기 (column_id = None)
+    # 모델에 cascade="all, delete"가 걸려 있어도,
+    # 관계를 먼저 끊고(None) 커밋하면 삭제되지 않습니다.
+    for card in column.cards:
+        card.column_id = None
+        db.add(card)
+
+    # 카드를 먼저 대피시킨 내용을 저장 (필수!)
+    db.commit()
+
+    # 3. 이제 빈 껍데기가 된 컬럼 삭제
+    db.refresh(column) # 관계 갱신
+    db.delete(column)
+    db.commit()
+
+    # 4. 활동 로그 기록
+    if project:
+        user = db.get(User, user_id)
+        log_activity(
+            db=db,
+            user_id=user_id,
+            workspace_id=project.workspace_id,
+            action_type="DELETE",
+            # 로그 메시지도 상황에 맞게 조금 더 상세하게 적어주면 좋습니다.
+            content=f"🗑️ '{user.name}'님이 그룹 '{col_title}'을(를) 삭제했습니다. (카드 {card_count}개는 보관됨)"
+        )
+
+    return {"message": "그룹이 삭제되었으며, 포함된 카드들은 보관함으로 이동되었습니다."}
 
 
 # 3. 특정 프로젝트의 모든 컬럼 및 카드 조회
