@@ -289,7 +289,6 @@ def create_invitation(
     return InvitationResponse(invite_link=invite_link, expires_at=expires_at)
 
 
-# 9. [신규] 초대 링크 수락하기
 @router.post("/invitations/{token}/accept")
 @vectorize(search_description="Accept invitation", capture_return_value=True, replay=True)  # 👈 추가
 def accept_invitation(
@@ -335,6 +334,7 @@ def accept_invitation(
 
 
 @router.delete("/workspaces/{workspace_id}")
+@vectorize(search_description="Delete workspace", capture_return_value=True)
 def delete_workspace(
         workspace_id: int,
         user_id: int = Depends(get_current_user_id),
@@ -354,6 +354,7 @@ def delete_workspace(
 
 # 2. 프로젝트 삭제
 @router.delete("/projects/{project_id}")
+@vectorize(search_description="Delete project", capture_return_value=True)
 def delete_project(
         project_id: int,
         user_id: int = Depends(get_current_user_id),
@@ -368,6 +369,12 @@ def delete_project(
     if workspace.owner_id != user_id:
         raise HTTPException(status_code=403, detail="워크스페이스 소유자만 프로젝트를 삭제할 수 있습니다.")
 
+    user = db.get(User, user_id)
+    log_activity(
+        db=db, user_id=user_id, workspace_id=workspace.id, action_type="DELETE",
+        content=f"🗑️ '{user.name}'님이 프로젝트 '{project.name}'을(를) 삭제했습니다."
+    )
+
     db.delete(project)
     db.commit()
     return {"message": "프로젝트가 삭제되었습니다."}
@@ -375,6 +382,7 @@ def delete_project(
 
 # 3. 워크스페이스 멤버 삭제 (강퇴 또는 본인 탈퇴)
 @router.delete("/workspaces/{workspace_id}/members/{target_user_id}")
+@vectorize(search_description="Remove workspace member", capture_return_value=True)  # 👈 추가
 def remove_workspace_member(
         workspace_id: int,
         target_user_id: int,
@@ -406,11 +414,22 @@ def remove_workspace_member(
     if not member:
         raise HTTPException(status_code=404, detail="해당 멤버를 찾을 수 없습니다.")
 
+    actor = db.get(User, user_id)
+    target = db.get(User, target_user_id)
+    action_type = "LEAVE" if user_id == target_user_id else "KICK"
+    content = f"👋 '{target.name}'님이 나갔습니다." if user_id == target_user_id else f"🚫 '{actor.name}'님이 '{target.name}'님을 내보냈습니다."
+
+    log_activity(
+        db=db, user_id=user_id, workspace_id=workspace_id, action_type=action_type,
+        content=content
+    )
+
     db.delete(member)
     db.commit()
 
     action = "탈퇴" if user_id == target_user_id else "강퇴"
     return {"message": f"멤버가 성공적으로 {action}처리 되었습니다."}
+
 
 @router.patch("/workspaces/{workspace_id}", response_model=WorkspaceResponse)
 @vectorize(search_description="Update workspace info", capture_return_value=True)
@@ -438,6 +457,12 @@ def update_workspace(
     db.add(workspace)
     db.commit()
     db.refresh(workspace)
+
+    user = db.get(User, user_id)
+    log_activity(
+        db=db, user_id=user_id, workspace_id=workspace_id, action_type="UPDATE",
+        content=f"⚙️ '{user.name}'님이 워크스페이스 정보를 수정했습니다."
+    )
 
     return workspace
 
@@ -471,5 +496,11 @@ def update_project(
     db.add(project)
     db.commit()
     db.refresh(project)
+
+    user = db.get(User, user_id)
+    log_activity(
+        db=db, user_id=user_id, workspace_id=project.workspace_id, action_type="UPDATE",
+        content=f"⚙️ '{user.name}'님이 프로젝트 '{project.name}' 정보를 수정했습니다."
+    )
 
     return project

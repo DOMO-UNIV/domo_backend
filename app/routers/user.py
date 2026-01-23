@@ -8,7 +8,8 @@ from app.database import get_db
 from app.routers.workspace import get_current_user_id
 from app.models.user import User
 from app.schemas import UserResponse, UserUpdate
-from vectorwave import vectorize  # 로그/추적용 (선택 사항)
+from vectorwave import vectorize
+from app.utils.logger import log_activity
 
 router = APIRouter(tags=["User"])
 
@@ -49,6 +50,11 @@ def update_profile_image(
     db.commit()
     db.refresh(user)
 
+    log_activity(
+        db=db, user_id=user_id, workspace_id=None, action_type="UPDATE",
+        content=f"🖼️ '{user.name}'님이 프로필 사진을 변경했습니다."
+    )
+
     return user
 
 
@@ -79,5 +85,10 @@ def update_my_info(
     db.add(user)
     db.commit()
     db.refresh(user)
+
+    log_activity(
+        db=db, user_id=user_id, workspace_id=None, action_type="UPDATE",
+        content=f"✏️ '{user.name}'님이 이름을 수정했습니다."
+    )
 
     return user

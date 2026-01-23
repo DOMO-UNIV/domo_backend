@@ -56,6 +56,12 @@ def delete_personal_schedule(
     if schedule.user_id != user_id:
         raise HTTPException(status_code=403, detail="본인의 일정만 삭제할 수 있습니다.")
 
+    user = db.get(User, user_id)
+    log_activity(
+        db=db, user_id=user_id, workspace_id=None, action_type="SCHEDULE",
+        content=f"🗑️ '{user.name}'님이 개인 일정 '{schedule.description or '일정'}'을(를) 삭제했습니다."
+    )
+
     # 3. 삭제
     db.delete(schedule)
     db.commit()
@@ -63,6 +69,7 @@ def delete_personal_schedule(
     return {"message": "개인 일정이 삭제되었습니다."}
 
 @router.get("/schedules/me", response_model=List[ScheduleResponse])
+@vectorize(search_description="Get my schedules", capture_return_value=True) # 👈 추가
 def get_my_schedules(
         user_id: int = Depends(get_current_user_id),
         db: Session = Depends(get_db)
@@ -187,6 +194,14 @@ def delete_project_event(
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
 
+    project = db.get(Project, event.project_id) # 로그용 프로젝트 정보
+
+    user = db.get(User, user_id)
+    log_activity(
+        db=db, user_id=user_id, workspace_id=project.workspace_id, action_type="CALENDAR",
+        content=f"🗑️ '{user.name}'님이 프로젝트 '{project.name}'의 일정 '{event.title}'을(를) 삭제했습니다."
+    )
+
     db.delete(event)
     db.commit()
 
@@ -220,6 +235,13 @@ def update_personal_schedule(
     db.add(schedule)
     db.commit()
     db.refresh(schedule)
+
+    user = db.get(User, user_id)
+    log_activity(
+        db=db, user_id=user_id, workspace_id=None, action_type="SCHEDULE",
+        content=f"✏️ '{user.name}'님이 개인 일정을 수정했습니다."
+    )
+
     return schedule
 
 
@@ -252,4 +274,12 @@ def update_project_event(
     db.add(event)
     db.commit()
     db.refresh(event)
+
+    user = db.get(User, user_id)
+    project = db.get(Project, event.project_id)
+    log_activity(
+        db=db, user_id=user_id, workspace_id=project.workspace_id, action_type="CALENDAR",
+        content=f"✏️ '{user.name}'님이 프로젝트 '{project.name}'의 일정 '{event.title}'을(를) 수정했습니다."
+    )
+
     return event
