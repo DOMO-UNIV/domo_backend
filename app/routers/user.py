@@ -82,6 +82,9 @@ def update_my_info(
     if user_data.name is not None:
         user.name = user_data.name
 
+    if user_data.nickname is not None:
+        user.nickname = user_data.nickname
+
     db.add(user)
     db.commit()
     db.refresh(user)

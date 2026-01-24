@@ -1,7 +1,7 @@
 from typing import Optional,List
 from datetime import datetime
-from sqlmodel import SQLModel, Field
 from sqlmodel import SQLModel, Field, Relationship
+
 
 
 class User(SQLModel, table=True):
@@ -11,6 +11,7 @@ class User(SQLModel, table=True):
     email: str = Field(unique=True, index=True)
     password_hash: str
     name: str
+    nickname: Optional[str] = Field(default=None)
     profile_image: Optional[str] = None
 
     is_student_verified: bool = Field(default=False)

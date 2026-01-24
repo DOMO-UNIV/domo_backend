@@ -104,6 +104,7 @@ async def signup(
         email=user_data.email,
         password_hash=hash_password(user_data.password),
         name=user_data.name,
+        nickname=user_data.nickname,
         is_student_verified=False # 👈 기본값 False
     )
     db.add(new_user)

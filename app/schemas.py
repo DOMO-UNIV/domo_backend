@@ -8,6 +8,7 @@ class UserCreate(BaseModel):
     email: EmailStr
     password: str
     name: str
+    nickname: Optional[str] = None
 
 
 # data for login
@@ -21,6 +22,7 @@ class UserResponse(BaseModel):
     id: int
     email: EmailStr
     name: str
+    nickname: Optional[str] = None
     is_student_verified: bool
     profile_image: Optional[str] = None
 
@@ -325,6 +327,7 @@ class ProjectUpdate(BaseModel):
 
 class UserUpdate(BaseModel):
     name: Optional[str] = None
+    nickname: Optional[str] = None
 
 
 class ScheduleUpdate(BaseModel):
