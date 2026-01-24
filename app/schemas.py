@@ -1,7 +1,8 @@
 from pydantic import BaseModel, EmailStr
 from datetime import time as dt_time, datetime
 from typing import Optional, List
-from pydantic import Field as PydanticField # 👈 별칭 사용을 위해 필요
+from pydantic import Field as PydanticField  # 👈 별칭 사용을 위해 필요
+
 
 # data for register
 class UserCreate(BaseModel):
@@ -68,7 +69,6 @@ class BoardColumnCreate(BaseModel):
     order: int = 0
 
 
-
 class TransformSchema(BaseModel):
     scaleX: float
     scaleY: float
@@ -91,7 +91,7 @@ class BoardColumnResponse(BaseModel):
     color: Optional[str]
     collapsed: bool
     order: int
-    project_id: int = PydanticField(serialization_alias="boardId") # project_id -> boardId
+    project_id: int = PydanticField(serialization_alias="boardId")  # project_id -> boardId
 
     # Transform 객체 조립 (DB 필드 3개 -> 객체 1개)
     # Pydantic v2 computed_field를 쓰거나, 아래처럼 별도 필드로 정의 후 router에서 조립
@@ -343,20 +343,22 @@ class ProjectEventUpdate(BaseModel):
     start_datetime: Optional[datetime] = None
     end_datetime: Optional[datetime] = None
 
+
 # 🔗 [수정] 카드 연결 생성 요청
 class CardConnectionCreate(BaseModel):
-    from_card_id: int = PydanticField(alias="from") # 프론트에서 { "from": 1, ... } 로 보냄
+    from_card_id: int = PydanticField(alias="from")  # 프론트에서 { "from": 1, ... } 로 보냄
     to_card_id: int = PydanticField(alias="to")
     style: Optional[str] = "solid"
     shape: Optional[str] = "bezier"
     source_handle: Optional[str] = PydanticField(alias="sourceHandle", default=None)
     target_handle: Optional[str] = PydanticField(alias="targetHandle", default=None)
 
+
 # 🔗 [수정] 카드 연결 응답 (프론트엔드 인터페이스와 100% 일치)
 class CardConnectionResponse(BaseModel):
     id: int
-    from_card_id: int = PydanticField(serialization_alias="from") # JSON 나갈때 "from"으로 변환
-    to_card_id: int = PydanticField(serialization_alias="to")     # JSON 나갈때 "to"로 변환
+    from_card_id: int = PydanticField(serialization_alias="from")  # JSON 나갈때 "from"으로 변환
+    to_card_id: int = PydanticField(serialization_alias="to")  # JSON 나갈때 "to"로 변환
     board_id: int = PydanticField(serialization_alias="boardId")  # JSON 나갈때 "boardId"로 변환
     style: str
     shape: str
@@ -368,6 +370,7 @@ class TransformInput(BaseModel):
     scaleX: Optional[float] = 1.0
     scaleY: Optional[float] = 1.0
     rotation: Optional[float] = 0.0
+
 
 class BoardColumnUpdate(BaseModel):
     title: Optional[str] = None
@@ -390,6 +393,7 @@ class BoardColumnUpdate(BaseModel):
     # 변환 (프론트엔드 { transform: { ... } } 구조 대응)
     transform: Optional[TransformInput] = None
 
+
 class CardConnectionUpdate(BaseModel):
     from_card_id: Optional[int] = PydanticField(alias="from", default=None)
     to_card_id: Optional[int] = PydanticField(alias="to", default=None)
@@ -399,3 +403,39 @@ class CardConnectionUpdate(BaseModel):
 
     source_handle: Optional[str] = PydanticField(alias="sourceHandle", default=None)
     target_handle: Optional[str] = PydanticField(alias="targetHandle", default=None)
+
+
+# app/schemas.py
+
+# ... (기존 코드 아래에 추가) ...
+
+class CommunityCommentResponse(BaseModel):
+    id: int
+    content: str
+    user_id: int
+    user_name: str  # 작성자 이름 편하게 보기 위함
+    created_at: datetime
+
+
+class CommunityPostResponse(BaseModel):
+    id: int
+    title: str
+    content: str
+    image_url: Optional[str] = None
+    user_id: int
+    user_name: str
+    created_at: datetime
+    updated_at: datetime
+    comments: List[CommunityCommentResponse] = []  # 댓글 목록 포함
+
+
+class CommunityCommentCreate(BaseModel):
+    content: str
+
+
+class CommunityPostUpdate(BaseModel):
+    title: Optional[str] = None
+    content: Optional[str] = None
+
+class CommunityCommentUpdate(BaseModel):
+    content: str

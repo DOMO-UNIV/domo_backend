@@ -10,6 +10,7 @@ from app.models.user import User
 from app.schemas import UserResponse, UserUpdate
 from vectorwave import vectorize
 from app.utils.logger import log_activity
+from datetime import datetime
 
 router = APIRouter(tags=["User"])
 
@@ -95,3 +96,22 @@ def update_my_info(
     )
 
     return user
+
+@router.delete("/users/me")
+def withdraw_user(
+        user_id: int = Depends(get_current_user_id),
+        db: Session = Depends(get_db)
+):
+    user = db.get(User, user_id)
+
+    # 1. 개인 정보 삭제 (선택)
+    user.password_hash = ""
+    user.email = f"deleted_{user.id}@anonymous.com" # 재가입 방지용
+
+    # 2. 상태 변경 (Soft Delete)
+    user.is_active = False
+    user.deleted_at = datetime.now()
+
+    db.add(user)
+    db.commit()
+    return {"message": "탈퇴 처리되었습니다."}

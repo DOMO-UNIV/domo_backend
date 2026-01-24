@@ -7,7 +7,7 @@ import asyncio
 from fastapi.staticfiles import StaticFiles
 
 #routers
-from app.routers import auth, workspace, board, schedule, file, activity, user, voice, chat, post
+from app.routers import auth, workspace, board, schedule, file, activity, user, voice, chat, post, community
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -99,6 +99,7 @@ app.include_router(user.router, prefix="/api")
 app.include_router(voice.router)
 app.include_router(chat.router, prefix="/api")
 app.include_router(post.router, prefix="/api")
+app.include_router(community.router, prefix="/api")
 
 @app.get("/")
 def read_root():
