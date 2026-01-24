@@ -15,6 +15,11 @@ from typing import Any
 from app.utils.logger import log_activity
 from vectorwave import *
 from app.schemas import WorkspaceUpdate, ProjectUpdate
+from fastapi.concurrency import run_in_threadpool
+import asyncio
+import json
+from fastapi import Request
+from fastapi.responses import StreamingResponse
 
 router = APIRouter(tags=["Workspace & Project"])
 
@@ -226,32 +231,70 @@ def get_workspace_members(
         ) for r in results
     ]
 
-
-@router.get("/workspaces/{workspace_id}/online-members", response_model=List[UserResponse])
+@router.get("/workspaces/{workspace_id}/online-members/stream")
 @vectorize(search_description="Get online members", capture_return_value=True, replay=True)  # 👈 추가
-def get_online_members(
+async def stream_online_members(
         workspace_id: int,
-        user_id: int = Depends(get_current_user_id),
+        request: Request,
+        user_id: int = Depends(get_current_user_id), # 👈 보안: 로그인한 유저만 접근 가능
         db: Session = Depends(get_db)
 ):
-    # 1. 요청한 사람이 멤버인지 확인
+    """
+    Server-Sent Events (SSE) 엔드포인트
+    클라이언트가 연결하면, 5초마다 온라인 멤버 변경사항을 확인하여 푸시합니다.
+    """
+    # 1. 권한 확인 (이 워크스페이스 멤버인가?)
+    #    스트림 연결 전에 먼저 확인해서, 권한 없으면 즉시 차단합니다.
     member = db.get(WorkspaceMember, (workspace_id, user_id))
     if not member:
-        raise HTTPException(status_code=403, detail="워크스페이스 멤버가 아닙니다.")
+        raise HTTPException(status_code=403, detail="워크스페이스 멤버만 조회할 수 있습니다.")
 
-    # 2. 최근 5분 이내에 활동 기록(last_active_at)이 있는 유저 조회
-    active_threshold = datetime.now() - timedelta(minutes=1)
+    async def event_generator():
+        prev_online_ids: set = set()
 
-    statement = (
-        select(User)
-        .join(WorkspaceMember, User.id == WorkspaceMember.user_id)
-        .where(WorkspaceMember.workspace_id == workspace_id)
-        .where(User.last_active_at >= active_threshold)  # 👈 핵심 조건
-    )
+        while True:
+            # 클라이언트 연결 끊김 체크
+            if await request.is_disconnected():
+                break
 
-    online_users = db.exec(statement).all()
+            # 2. 동기 DB 작업을 쓰레드풀에서 실행 (서버 블로킹 방지)
+            def fetch_online_users():
+                active_threshold = datetime.now() - timedelta(minutes=1)
+                statement = (
+                    select(User)
+                    .join(WorkspaceMember, User.id == WorkspaceMember.user_id)
+                    .where(WorkspaceMember.workspace_id == workspace_id)
+                    .where(User.last_active_at >= active_threshold)
+                )
+                return db.exec(statement).all()
 
-    return online_users
+            # await로 결과를 기다림 (이 동안 다른 요청 처리 가능)
+            online_users = await run_in_threadpool(fetch_online_users)
+
+            current_online_ids = {user.id for user in online_users}
+
+            # 변경사항이 있거나, 최초 연결(prev가 비어있음)인 경우 전송
+            # (단, 아무도 없을 때도 빈 리스트를 보내줘야 화면이 갱신되므로 조건 수정)
+            if current_online_ids != prev_online_ids or not prev_online_ids:
+                data = json.dumps({
+                    "online_members": [
+                        {
+                            "id": user.id,
+                            "name": user.name,
+                            "email": user.email,
+                            "profile_image": user.profile_image
+                        }
+                        for user in online_users
+                    ]
+                }, ensure_ascii=False)
+
+                yield f"data: {data}\n\n"
+                prev_online_ids = current_online_ids
+
+            # 5초 대기
+            await asyncio.sleep(5)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 @router.post("/workspaces/{workspace_id}/invitations", response_model=InvitationResponse)
