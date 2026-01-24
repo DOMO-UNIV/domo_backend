@@ -131,6 +131,56 @@ async def upload_file(
         )
     )
 
+@router.get("/projects/{project_id}/files", response_model=List[FileResponse])
+@vectorize(search_description="List all files in project", capture_return_value=True)
+def get_project_files(
+        project_id: int,
+        db: Session = Depends(get_db),
+        user_id: int = Depends(get_current_user_id)
+):
+    """
+    해당 프로젝트에 업로드된 모든 파일의 목록과 최신 버전 정보를 반환합니다.
+    """
+    # 1. 프로젝트 존재 여부 확인
+    project = db.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # 2. 파일 메타데이터 조회 (최신순 정렬)
+    files = db.exec(
+        select(FileMetadata)
+        .where(FileMetadata.project_id == project_id)
+        .order_by(FileMetadata.created_at.desc())
+    ).all()
+
+    results = []
+    for f in files:
+        # 3. 각 파일의 '최신 버전' 정보 가져오기
+        latest_ver = db.exec(
+            select(FileVersion)
+            .where(FileVersion.file_id == f.id)
+            .order_by(desc(FileVersion.version))
+        ).first()
+
+        # 버전 정보가 있는 경우에만 결과에 포함
+        if latest_ver:
+            results.append(FileResponse(
+                id=f.id,
+                project_id=f.project_id,
+                filename=f.filename,
+                owner_id=f.owner_id,
+                created_at=f.created_at,
+                latest_version=FileVersionResponse(
+                    id=latest_ver.id,
+                    version=latest_ver.version,
+                    file_size=latest_ver.file_size,
+                    created_at=latest_ver.created_at,
+                    uploader_id=latest_ver.uploader_id
+                )
+            ))
+
+    return results
+
 
 # 2. 파일 다운로드 (특정 버전)
 @router.get("/files/download/{version_id}")
