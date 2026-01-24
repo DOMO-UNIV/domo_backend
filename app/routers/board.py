@@ -9,7 +9,7 @@ from app.models.workspace import Project, WorkspaceMember
 from app.schemas import (
     BoardColumnCreate, BoardColumnResponse, CardCreate, CardResponse, CardUpdate,
     CardCommentCreate, CardCommentResponse, BoardColumnUpdate, FileResponse,
-    CardConnectionCreate, CardConnectionResponse, TransformSchema # 👈 CardConnectionCreate 확인
+    CardConnectionCreate, CardConnectionResponse, TransformSchema, CardConnectionUpdate  # 👈 CardConnectionCreate 확인
 )
 from datetime import datetime
 from app.utils.logger import log_activity
@@ -236,6 +236,69 @@ def create_card_connection(
         shape=new_dependency.shape,
         source_handle=new_dependency.source_handle,
         target_handle=new_dependency.target_handle
+    )
+
+@router.patch("/cards/connections/{connection_id}", response_model=CardConnectionResponse)
+@vectorize(search_description="Update card connection", capture_return_value=True)
+def update_card_connection(
+        connection_id: int,
+        update_data: CardConnectionUpdate,
+        user_id: int = Depends(get_current_user_id),
+        db: Session = Depends(get_db)
+):
+    # 1. 기존 연결 조회
+    conn = db.get(CardDependency, connection_id)
+    if not conn:
+        raise HTTPException(status_code=404, detail="Connection not found")
+
+    # 2. 변경될 ID 확인 (입력 안 들어오면 기존 ID 유지)
+    target_from_id = update_data.from_card_id if update_data.from_card_id is not None else conn.from_card_id
+    target_to_id = update_data.to_card_id if update_data.to_card_id is not None else conn.to_card_id
+
+    # 3. 자기 참조 방지
+    if target_from_id == target_to_id:
+        raise HTTPException(status_code=400, detail="Cannot connect to self")
+
+    # 4. 카드 및 프로젝트 유효성 검사
+    card_from = db.get(Card, target_from_id)
+    card_to = db.get(Card, target_to_id)
+
+    if not card_from or not card_to:
+        raise HTTPException(status_code=404, detail="One of the cards not found")
+
+    if card_from.project_id != card_to.project_id:
+        raise HTTPException(status_code=400, detail="Cards must belong to the same project")
+
+    # 5. 업데이트 수행
+    # (exclude_unset=True를 써서 프론트에서 안 보낸 값은 건드리지 않음)
+    data_dict = update_data.model_dump(exclude_unset=True, by_alias=False)
+
+    for key, value in data_dict.items():
+        setattr(conn, key, value)
+
+    db.add(conn)
+    db.commit()
+    db.refresh(conn)
+
+    # 6. 로그 기록
+    project = db.get(Project, card_from.project_id)
+    user = db.get(User, user_id)
+
+    log_activity(
+        db=db, user_id=user_id, workspace_id=project.workspace_id, action_type="UPDATE",
+        content=f"🔗 '{user.name}'님이 카드 연결을 수정했습니다."
+    )
+
+    # 7. 응답 반환
+    return CardConnectionResponse(
+        id=conn.id,
+        from_card_id=conn.from_card_id,
+        to_card_id=conn.to_card_id,
+        board_id=project.id,
+        style=conn.style,
+        shape=conn.shape,
+        source_handle=conn.source_handle,
+        target_handle=conn.target_handle
     )
 
 @router.delete("/cards/connections/{connection_id}")

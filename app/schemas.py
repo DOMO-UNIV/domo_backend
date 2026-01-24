@@ -386,3 +386,13 @@ class BoardColumnUpdate(BaseModel):
 
     # 변환 (프론트엔드 { transform: { ... } } 구조 대응)
     transform: Optional[TransformInput] = None
+
+class CardConnectionUpdate(BaseModel):
+    from_card_id: Optional[int] = PydanticField(alias="from", default=None)
+    to_card_id: Optional[int] = PydanticField(alias="to", default=None)
+
+    style: Optional[str] = None
+    shape: Optional[str] = None
+
+    source_handle: Optional[str] = PydanticField(alias="sourceHandle", default=None)
+    target_handle: Optional[str] = PydanticField(alias="targetHandle", default=None)
