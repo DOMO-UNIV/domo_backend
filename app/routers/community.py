@@ -12,7 +12,13 @@ from app.database import get_db
 from app.models.user import User
 from app.models.community import CommunityPost, CommunityComment
 from app.routers.workspace import get_current_user_id
-from app.schemas import CommunityPostResponse, CommunityCommentResponse, CommunityCommentCreate, CommunityPostUpdate, CommunityCommentUpdate
+from app.schemas import (
+    CommunityPostResponse,
+    CommunityCommentResponse,
+    CommunityCommentCreate,
+    CommunityPostUpdate,
+    CommunityCommentUpdate
+)
 from app.utils.logger import log_activity
 from vectorwave import vectorize
 
@@ -35,18 +41,20 @@ def get_community_posts(
         select(CommunityPost).order_by(CommunityPost.created_at.desc()).offset(skip).limit(limit)
     ).all()
 
-    # 응답 변환 (작성자 이름 포함)
+    # 응답 변환 (User 객체 포함)
     results = []
     for post in posts:
         comments_resp = [
             CommunityCommentResponse(
                 id=c.id, content=c.content, user_id=c.user_id,
-                user_name=c.user.name if c.user else "Unknown", created_at=c.created_at
+                user=c.user,  # 👈 작성자 정보 전체 전달 (UserResponse로 자동 변환)
+                created_at=c.created_at
             ) for c in post.comments
         ]
         results.append(CommunityPostResponse(
             id=post.id, title=post.title, content=post.content, image_url=post.image_url,
-            user_id=post.user_id, user_name=post.user.name if post.user else "Unknown",
+            user_id=post.user_id,
+            user=post.user,  # 👈 작성자 정보 전체 전달
             created_at=post.created_at, updated_at=post.updated_at,
             comments=comments_resp
         ))
@@ -90,17 +98,20 @@ def create_community_post(
     db.commit()
     db.refresh(new_post)
 
-    # 3. 로그 기록
+    # 3. 작성자 정보 조회 (응답용)
     user = db.get(User, user_id)
+
+    # 4. 로그 기록
     log_activity(
         db=db, user_id=user_id, workspace_id=None, action_type="POST",
         content=f"📢 '{user.name}'님이 전체 게시판에 글을 남겼습니다: {title}"
     )
 
-    # 4. 응답 반환
+    # 5. 응답 반환
     return CommunityPostResponse(
         id=new_post.id, title=new_post.title, content=new_post.content, image_url=new_post.image_url,
-        user_id=new_post.user_id, user_name=user.name,
+        user_id=new_post.user_id,
+        user=user,  # 👈 User 객체 전달
         created_at=new_post.created_at, updated_at=new_post.updated_at,
         comments=[]
     )
@@ -129,15 +140,18 @@ def create_community_comment(
     db.commit()
     db.refresh(new_comment)
 
+    # 작성자 정보 조회
     user = db.get(User, user_id)
-
-    # 댓글은 너무 자주 달릴 수 있으므로 중요 로그만 남기거나 생략 가능 (여기선 생략)
 
     return CommunityCommentResponse(
         id=new_comment.id, content=new_comment.content, user_id=new_comment.user_id,
-        user_name=user.name, created_at=new_comment.created_at
+        user=user,  # 👈 User 객체 전달
+        created_at=new_comment.created_at
     )
 
+# ---------------------------------------------------------
+# 📖 게시글 상세 조회
+# ---------------------------------------------------------
 @router.get("/community/{post_id}", response_model=CommunityPostResponse)
 @vectorize(search_description="Get community post detail", capture_return_value=True)
 def get_community_post(
@@ -152,13 +166,15 @@ def get_community_post(
     comments_resp = [
         CommunityCommentResponse(
             id=c.id, content=c.content, user_id=c.user_id,
-            user_name=c.user.name if c.user else "Unknown", created_at=c.created_at
+            user=c.user,  # 👈 User 객체 전달
+            created_at=c.created_at
         ) for c in post.comments
     ]
 
     return CommunityPostResponse(
         id=post.id, title=post.title, content=post.content, image_url=post.image_url,
-        user_id=post.user_id, user_name=post.user.name if post.user else "Unknown",
+        user_id=post.user_id,
+        user=post.user,  # 👈 User 객체 전달
         created_at=post.created_at, updated_at=post.updated_at,
         comments=comments_resp
     )
@@ -195,6 +211,9 @@ def delete_community_post(
 
     return {"message": "게시글이 삭제되었습니다."}
 
+# ---------------------------------------------------------
+# 🗑️ 댓글 삭제
+# ---------------------------------------------------------
 @router.delete("/community/comments/{comment_id}")
 @vectorize(search_description="Delete community comment", capture_return_value=True)
 def delete_community_comment(
@@ -217,6 +236,9 @@ def delete_community_comment(
 
     return {"message": "댓글이 삭제되었습니다."}
 
+# ---------------------------------------------------------
+# ✏️ 게시글 수정
+# ---------------------------------------------------------
 @router.patch("/community/{post_id}", response_model=CommunityPostResponse)
 @vectorize(search_description="Update community post", capture_return_value=True)
 def update_community_post(
@@ -250,17 +272,22 @@ def update_community_post(
     comments_resp = [
         CommunityCommentResponse(
             id=c.id, content=c.content, user_id=c.user_id,
-            user_name=c.user.name if c.user else "Unknown", created_at=c.created_at
+            user=c.user,  # 👈 User 객체 전달
+            created_at=c.created_at
         ) for c in post.comments
     ]
 
     return CommunityPostResponse(
         id=post.id, title=post.title, content=post.content, image_url=post.image_url,
-        user_id=post.user_id, user_name=post.user.name,
+        user_id=post.user_id,
+        user=post.user,  # 👈 User 객체 전달
         created_at=post.created_at, updated_at=post.updated_at,
         comments=comments_resp
     )
 
+# ---------------------------------------------------------
+# ✏️ 댓글 수정
+# ---------------------------------------------------------
 @router.patch("/community/comments/{comment_id}", response_model=CommunityCommentResponse)
 @vectorize(search_description="Update community comment", capture_return_value=True)
 def update_community_comment(
@@ -286,6 +313,6 @@ def update_community_comment(
 
     return CommunityCommentResponse(
         id=comment.id, content=comment.content, user_id=comment.user_id,
-        user_name=comment.user.name if comment.user else "Unknown",
+        user=comment.user,  # 👈 User 객체 전달
         created_at=comment.created_at
     )

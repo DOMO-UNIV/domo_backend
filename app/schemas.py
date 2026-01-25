@@ -26,6 +26,8 @@ class UserResponse(BaseModel):
     nickname: Optional[str] = None
     is_student_verified: bool
     profile_image: Optional[str] = None
+    class Config:
+        from_attributes = True
 
 
 class WorkspaceCreate(BaseModel):
@@ -415,6 +417,7 @@ class CommunityCommentResponse(BaseModel):
     user_id: int
     user_name: str  # 작성자 이름 편하게 보기 위함
     created_at: datetime
+    user: Optional[UserResponse] = None
 
 
 class CommunityPostResponse(BaseModel):
@@ -427,6 +430,7 @@ class CommunityPostResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     comments: List[CommunityCommentResponse] = []  # 댓글 목록 포함
+    user: Optional[UserResponse] = None
 
 
 class CommunityCommentCreate(BaseModel):
