@@ -1,7 +1,14 @@
 # app/routers/board.py
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlmodel import Session, select
-from typing import List
+from typing import List, Optional
+from datetime import datetime
+import json
+import asyncio
+
+from fastapi.encoders import jsonable_encoder  # 👈 [핵심] 이걸로 datetime 직렬화 문제 해결!
+from fastapi.responses import StreamingResponse
+
 from app.database import get_db
 from app.routers.workspace import get_current_user_id
 from app.models.board import BoardColumn, Card, CardAssignee
@@ -10,18 +17,60 @@ from app.schemas import (
     BoardColumnCreate, BoardColumnResponse, CardCreate, CardResponse, CardUpdate,
     CardCommentCreate, CardCommentResponse, BoardColumnUpdate, FileResponse,
     CardConnectionCreate, CardConnectionResponse, TransformSchema, CardConnectionUpdate,
-    BatchCardUpdateRequest, CardResponse
+    BatchCardUpdateRequest
 )
-from datetime import datetime
-from app.utils.logger import log_activity
 from app.models.user import User
 from app.models.file import FileMetadata
 from app.models.board import CardFileLink, CardComment, CardDependency
+from app.utils.logger import log_activity
 from vectorwave import *
 from fastapi import WebSocket, WebSocketDisconnect
 from app.utils.connection_manager import board_event_manager
 
 router = APIRouter(tags=["Board & Cards"])
+
+# =================================================================
+# 📡 [신규] 보드 실시간 구독 (SSE)
+# =================================================================
+@router.get("/projects/{project_id}/board/events")
+async def stream_board_events(
+        project_id: int,
+        request: Request,
+        user_id: int = Depends(get_current_user_id),
+        db: Session = Depends(get_db)
+):
+    """
+    보드 변경 사항을 실시간으로 수신합니다. (SSE)
+    """
+    # 1. 프로젝트 확인
+    project = db.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # 2. 이벤트 큐 생성 및 등록
+    queue = await board_event_manager.connect(project_id)
+
+    async def event_generator():
+        try:
+            while True:
+                # 클라이언트 연결 끊김 체크
+                if await request.is_disconnected():
+                    break
+
+                try:
+                    # 큐에서 메시지 꺼내기 (15초 대기)
+                    data = await asyncio.wait_for(queue.get(), timeout=15.0)
+
+                    # 딕셔너리를 JSON 문자열로 변환 (jsonable_encoder 덕분에 datetime 문제 없음)
+                    yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+                except asyncio.TimeoutError:
+                    # 연결 유지용 핑 (Ping)
+                    yield ": keep-alive\n\n"
+        finally:
+            board_event_manager.disconnect(project_id, queue)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
 
 # =================================================================
 # 1. 컬럼(Group) 관련 API
@@ -57,9 +106,10 @@ async def create_column(
     db.commit()
     db.refresh(new_col)
 
+    # 🔥 [SSE] jsonable_encoder 사용
     await board_event_manager.broadcast(project_id, {
         "type": "COLUMN_CREATED",
-        "data": new_col.model_dump()
+        "data": jsonable_encoder(new_col)
     })
 
     return BoardColumnResponse(
@@ -107,9 +157,10 @@ async def update_column(
     db.commit()
     db.refresh(col)
 
+    # 🔥 [SSE] jsonable_encoder 사용
     await board_event_manager.broadcast(col.project_id, {
         "type": "COLUMN_UPDATED",
-        "data": col.model_dump()
+        "data": jsonable_encoder(col)
     })
 
     return BoardColumnResponse(
@@ -246,13 +297,21 @@ async def create_card_connection(
     db.commit()
     db.refresh(new_dependency)
 
+    response_data = CardConnectionResponse(
+        id=new_dependency.id,
+        from_card_id=new_dependency.from_card_id,
+        to_card_id=new_dependency.to_card_id,
+        board_id=from_card.project_id,
+        style=new_dependency.style,
+        shape=new_dependency.shape,
+        source_handle=new_dependency.source_handle,
+        target_handle=new_dependency.target_handle
+    )
+
+    # 🔥 [SSE] jsonable_encoder 사용
     await board_event_manager.broadcast(from_card.project_id, {
         "type": "CONNECTION_CREATED",
-        "data": {
-            "id": new_dependency.id,
-            "from": new_dependency.from_card_id,
-            "to": new_dependency.to_card_id
-        }
+        "data": jsonable_encoder(response_data)
     })
 
     # 로그 기록
@@ -264,16 +323,7 @@ async def create_card_connection(
         content=f"🔗 '{user.name}'님이 카드 '{from_card.title}'와(과) '{to_card.title}'을(를) 연결했습니다."
     )
 
-    return CardConnectionResponse(
-        id=new_dependency.id,
-        from_card_id=new_dependency.from_card_id,
-        to_card_id=new_dependency.to_card_id,
-        board_id=from_card.project_id,
-        style=new_dependency.style,
-        shape=new_dependency.shape,
-        source_handle=new_dependency.source_handle,
-        target_handle=new_dependency.target_handle
-    )
+    return response_data
 
 @router.patch("/cards/connections/{connection_id}", response_model=CardConnectionResponse)
 @vectorize(search_description="Update card connection", capture_return_value=True)
@@ -326,22 +376,7 @@ async def update_card_connection(
         content=f"🔗 '{user.name}'님이 카드 연결을 수정했습니다."
     )
 
-    await board_event_manager.broadcast(card_from.project_id, {
-        "type": "CONNECTION_UPDATED",
-        "data": {
-            "id": conn.id,
-            "from": conn.from_card_id,
-            "to": conn.to_card_id,
-            "style": conn.style,
-            "shape": conn.shape,
-            "sourceHandle": conn.source_handle,
-            "targetHandle": conn.target_handle
-        }
-    })
-
-
-    # 7. 응답 반환
-    return CardConnectionResponse(
+    response_data = CardConnectionResponse(
         id=conn.id,
         from_card_id=conn.from_card_id,
         to_card_id=conn.to_card_id,
@@ -351,6 +386,15 @@ async def update_card_connection(
         source_handle=conn.source_handle,
         target_handle=conn.target_handle
     )
+
+    # 🔥 [SSE] jsonable_encoder 사용
+    await board_event_manager.broadcast(card_from.project_id, {
+        "type": "CONNECTION_UPDATED",
+        "data": jsonable_encoder(response_data)
+    })
+
+    # 7. 응답 반환
+    return response_data
 
 @router.delete("/cards/connections/{connection_id}")
 @vectorize(search_description="Delete card connection", capture_return_value=True, replay=True)
@@ -403,6 +447,7 @@ async def update_cards_batch(
         user_id: int = Depends(get_current_user_id)
 ):
     updated_cards = []
+    project_id = None
 
     # 1. 요청받은 모든 카드를 순회
     for item in request.cards:
@@ -410,16 +455,17 @@ async def update_cards_batch(
         if not card:
             continue  # 없으면 스킵 (혹은 에러 처리)
 
+        # 프로젝트 ID 확보
+        if project_id is None:
+            project_id = card.project_id
+
         # 2. 데이터 업데이트 (값이 있는 것만)
-        # CardUpdate 스키마에 정의된 필드들을 반복하며 적용
         update_data = item.model_dump(exclude_unset=True)
 
         # id는 업데이트 대상이 아니므로 제외
         if "id" in update_data:
             del update_data["id"]
 
-        # assignee_ids 등 관계형 데이터는 별도 처리가 필요할 수 있음
-        # 여기서는 간단한 필드(x, y, order, column_id 등) 위주로 처리
         if "assignee_ids" in update_data:
             # 담당자 변경 로직이 필요하다면 여기에 추가 (기존 로직 참조)
             pass
@@ -438,10 +484,12 @@ async def update_cards_batch(
     for card in updated_cards:
         db.refresh(card)
 
-    await board_event_manager.broadcast(updated_cards[0].project_id, {
-        "type": "CARD_BATCH_UPDATED",
-        "data": [c.model_dump() for c in updated_cards]
-    })
+    # 🔥 [SSE] jsonable_encoder 사용
+    if project_id and updated_cards:
+        await board_event_manager.broadcast(project_id, {
+            "type": "CARD_BATCH_UPDATED",
+            "data": jsonable_encoder(updated_cards)
+        })
 
     return updated_cards
 
@@ -486,9 +534,11 @@ async def create_card(
     db.commit()
     db.refresh(new_card)
 
+    # 🔥 [SSE] jsonable_encoder 사용 (datetime 에러 해결!)
     await board_event_manager.broadcast(project_id, {
         "type": "CARD_CREATED",
-        "data": new_card.model_dump()
+        "user_id": user_id,
+        "data": jsonable_encoder(new_card)
     })
 
     user = db.get(User, user_id)
@@ -525,7 +575,12 @@ def get_project_cards(project_id: int, db: Session = Depends(get_db)):
 
 @router.patch("/cards/{card_id}", response_model=CardResponse)
 @vectorize(search_description="Update card", capture_return_value=True, replay=True)
-async def update_card(card_id: int, card_data: CardUpdate, db: Session = Depends(get_db)):
+async def update_card(
+        card_id: int,
+        card_data: CardUpdate,
+        db: Session = Depends(get_db),
+        user_id: int = Depends(get_current_user_id)
+):
     card = db.get(Card, card_id)
     if not card: raise HTTPException(status_code=404, detail="카드를 찾을 수 없습니다.")
 
@@ -543,16 +598,22 @@ async def update_card(card_id: int, card_data: CardUpdate, db: Session = Depends
     db.commit()
     db.refresh(card)
 
+    # 🔥 [SSE] jsonable_encoder 사용
     await board_event_manager.broadcast(card.project_id, {
         "type": "CARD_UPDATED",
-        "data": card.model_dump()
+        "user_id": user_id,
+        "data": jsonable_encoder(card)
     })
 
     return card
 
 @router.delete("/cards/{card_id}")
 @vectorize(search_description="Delete card", capture_return_value=True)
-async def delete_card(card_id: int, user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)):
+async def delete_card(
+        card_id: int,
+        user_id: int = Depends(get_current_user_id),
+        db: Session = Depends(get_db)
+):
     card = db.get(Card, card_id)
     if not card: raise HTTPException(status_code=404, detail="카드를 찾을 수 없습니다.")
 
@@ -597,9 +658,10 @@ async def attach_file_to_card(card_id: int, file_id: int, user_id: int = Depends
         content=f"📎 '{user.name}'님이 카드 '{card.title}'에 파일 '{file.filename}'을(를) 첨부했습니다."
     )
 
+    # 🔥 [SSE] jsonable_encoder 사용
     await board_event_manager.broadcast(card.project_id, {
         "type": "CARD_UPDATED",
-        "data": card.model_dump()
+        "data": jsonable_encoder(card)
     })
 
     return card
@@ -624,9 +686,10 @@ async def detach_file_from_card(card_id: int, file_id: int, user_id: int = Depen
         content=f"📎 '{user.name}'님이 카드 '{card.title}'에서 파일 '{file.filename}'을(를) 분리했습니다."
     )
 
+    # 🔥 [SSE] jsonable_encoder 사용
     await board_event_manager.broadcast(project_id, {
         "type": "CARD_UPDATED",
-        "data": card.model_dump()
+        "data": jsonable_encoder(card)
     })
 
     return {"message": "파일 연결이 해제되었습니다."}
@@ -650,9 +713,10 @@ async def create_comment(card_id: int, comment_data: CardCommentCreate, user_id:
     db.commit()
     db.refresh(new_comment)
 
+    # 🔥 [SSE] jsonable_encoder 사용
     await board_event_manager.broadcast(project_id, {
         "type": "CARD_UPDATED",
-        "data": card.model_dump()
+        "data": jsonable_encoder(card)
     })
 
     return new_comment
