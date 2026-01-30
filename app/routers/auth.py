@@ -171,8 +171,8 @@ def login(response: Response, login_data: UserLogin, db: Session = Depends(get_d
         key="session_id",
         value=session.session_id,
         httponly=True,
-        secure=False,
-        samesite="lax",
+        secure=True,          # False → True
+        samesite="none",      # "lax" → "none"
         max_age=60 * 60 * 24
     )
 
