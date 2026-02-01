@@ -6,7 +6,8 @@ import shutil
 from typing import List
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks
-from fastapi.encoders import jsonable_encoder  # 👈 [핵심] 직렬화 해결사 임포트
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import FileResponse  # 👈 파일 전송용
 from sqlmodel import Session, select, desc
 
 from app.database import get_db
@@ -14,7 +15,7 @@ from app.routers.workspace import get_current_user_id
 from app.models.file import FileMetadata, FileVersion
 from app.models.workspace import Project
 from app.models.user import User
-from app.schemas import FileResponse, FileVersionResponse
+from app.schemas import FileResponse as FileSchema, FileVersionResponse
 from app.utils.logger import log_activity
 from app.utils.connection_manager import board_event_manager
 from vectorwave import vectorize
@@ -24,7 +25,61 @@ router = APIRouter(tags=["Files"])
 UPLOAD_DIR = "/app/uploads/files"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-@router.post("/projects/{project_id}/files", response_model=FileResponse)
+# =================================================================
+# 📥 1. 파일 다운로드 (특정 버전) - [복구됨]
+# =================================================================
+@router.get("/files/download/{version_id}")
+@vectorize(search_description="Download file version", capture_return_value=False)
+def download_file_version(version_id: int, db: Session = Depends(get_db)):
+    # 1. 버전 정보 조회
+    version = db.get(FileVersion, version_id)
+    if not version:
+        raise HTTPException(status_code=404, detail="파일 버전을 찾을 수 없습니다.")
+
+    # 2. 메타데이터 조회 (파일명 확인용)
+    file_meta = db.get(FileMetadata, version.file_id)
+    if not file_meta:
+        raise HTTPException(status_code=404, detail="파일 정보를 찾을 수 없습니다.")
+
+    # 3. 실제 파일 존재 여부 확인
+    if not os.path.exists(version.saved_path):
+        raise HTTPException(status_code=404, detail="서버에 실제 파일이 존재하지 않습니다.")
+
+    # 4. 다운로드 제공 (파일명: v1_원래이름.ext)
+    return FileResponse(
+        path=version.saved_path,
+        filename=f"v{version.version}_{file_meta.filename}",
+        media_type="application/octet-stream"
+    )
+
+# =================================================================
+# 📜 2. 파일 히스토리 조회 - [복구됨]
+# =================================================================
+@router.get("/files/{file_id}/versions", response_model=List[FileVersionResponse])
+@vectorize(search_description="Get file version history", capture_return_value=True)
+def get_file_history(
+        file_id: int,
+        db: Session = Depends(get_db)
+):
+    # 1. 파일 존재 확인
+    file_meta = db.get(FileMetadata, file_id)
+    if not file_meta:
+        raise HTTPException(status_code=404, detail="파일을 찾을 수 없습니다.")
+
+    # 2. 버전 목록 조회 (최신순)
+    versions = db.exec(
+        select(FileVersion)
+        .where(FileVersion.file_id == file_id)
+        .order_by(desc(FileVersion.version))
+    ).all()
+
+    return versions
+
+# =================================================================
+# 📤 3. 파일 업로드 API (단건 & 배치)
+# =================================================================
+
+@router.post("/projects/{project_id}/files", response_model=FileSchema)
 @vectorize(search_description="Upload file to project", capture_return_value=True, replay=True)
 async def upload_file(
         project_id: int,
@@ -32,14 +87,12 @@ async def upload_file(
         user_id: int = Depends(get_current_user_id),
         db: Session = Depends(get_db)
 ):
-    # 1. 프로젝트 확인
     project = db.get(Project, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
     user = db.get(User, user_id)
 
-    # 2. 파일 저장
     file_ext = os.path.splitext(file.filename)[1]
     saved_filename = f"{uuid.uuid4()}{file_ext}"
     saved_path = os.path.join(UPLOAD_DIR, saved_filename)
@@ -49,7 +102,6 @@ async def upload_file(
 
     file_size = os.path.getsize(saved_path)
 
-    # 3. DB 메타데이터 확인 및 버전 관리
     existing_file = db.exec(
         select(FileMetadata)
         .where(FileMetadata.project_id == project_id)
@@ -60,7 +112,6 @@ async def upload_file(
     target_file_id = None
 
     if existing_file:
-        # 이미 존재하면: 메타데이터 업데이트
         last_version = db.exec(
             select(FileVersion)
             .where(FileVersion.file_id == existing_file.id)
@@ -74,7 +125,6 @@ async def upload_file(
         existing_file.updated_at = datetime.now()
         db.add(existing_file)
     else:
-        # 없으면: 새로 생성
         new_file = FileMetadata(
             project_id=project_id,
             filename=file.filename,
@@ -86,7 +136,6 @@ async def upload_file(
         target_file_id = new_file.id
         existing_file = new_file
 
-    # 4. 버전 정보 저장
     new_version = FileVersion(
         file_id=target_file_id,
         version=current_version_num,
@@ -98,8 +147,7 @@ async def upload_file(
     db.commit()
     db.refresh(new_version)
 
-    # 5. 응답 데이터 생성
-    response_data = FileResponse(
+    response_data = FileSchema(
         id=existing_file.id,
         project_id=existing_file.project_id,
         filename=existing_file.filename,
@@ -114,24 +162,22 @@ async def upload_file(
         )
     )
 
-    # 6. 로그 기록
     action_msg = "업로드" if current_version_num == 1 else f"새 버전(v{current_version_num}) 업데이트"
     log_activity(
         db=db, user_id=user_id, workspace_id=project.workspace_id, action_type="UPLOAD",
         content=f"💾 '{user.name}'님이 파일 '{file.filename}'을(를) {action_msg}했습니다."
     )
 
-    # 🔥 [SSE] 파일 업로드 알림 (jsonable_encoder 적용!)
+    # 🔥 [SSE] SSE 알림 (jsonable_encoder 사용)
     await board_event_manager.broadcast(project_id, {
         "type": "FILE_UPLOADED",
         "user_id": user_id,
-        "data": jsonable_encoder(response_data)  # 👈 여기가 핵심!
+        "data": jsonable_encoder(response_data)
     })
 
     return response_data
 
-# 📦 [신규] 다중 파일 업로드 (배치)
-@router.post("/projects/{project_id}/files/batch", response_model=List[FileResponse])
+@router.post("/projects/{project_id}/files/batch", response_model=List[FileSchema])
 @vectorize(search_description="Batch upload files", capture_return_value=True)
 async def upload_files_batch(
         project_id: int,
@@ -147,7 +193,6 @@ async def upload_files_batch(
     results = []
 
     for file in files:
-        # A. 파일 저장
         file_ext = os.path.splitext(file.filename)[1]
         saved_filename = f"{uuid.uuid4()}{file_ext}"
         saved_path = os.path.join(UPLOAD_DIR, saved_filename)
@@ -157,7 +202,6 @@ async def upload_files_batch(
 
         file_size = os.path.getsize(saved_path)
 
-        # B. DB 처리 (단건과 동일 로직)
         existing_file = db.exec(
             select(FileMetadata)
             .where(FileMetadata.project_id == project_id)
@@ -190,7 +234,6 @@ async def upload_files_batch(
             target_file_id = new_file.id
             existing_file = new_file
 
-        # C. 버전 정보 저장
         new_version = FileVersion(
             file_id=target_file_id,
             version=current_version_num,
@@ -202,8 +245,7 @@ async def upload_files_batch(
         db.commit()
         db.refresh(new_version)
 
-        # D. 결과 리스트 추가
-        results.append(FileResponse(
+        results.append(FileSchema(
             id=existing_file.id,
             project_id=existing_file.project_id,
             filename=existing_file.filename,
@@ -218,7 +260,6 @@ async def upload_files_batch(
             )
         ))
 
-        # E. 로그 기록
         try:
             action_msg = "업로드" if current_version_num == 1 else f"새 버전(v{current_version_num}) 업데이트"
             log_activity(
@@ -231,17 +272,18 @@ async def upload_files_batch(
         except Exception:
             pass
 
-    # 🔥 [SSE] 배치 업로드 알림 (jsonable_encoder 적용!)
+    # 🔥 [SSE] 배치 알림 (jsonable_encoder 사용)
     if results:
         await board_event_manager.broadcast(project_id, {
             "type": "FILES_BATCH_UPLOADED",
             "user_id": user_id,
-            "data": jsonable_encoder(results)  # 👈 여기가 핵심!
+            "data": jsonable_encoder(results)
         })
 
     return results
 
-@router.get("/projects/{project_id}/files", response_model=List[FileResponse])
+
+@router.get("/projects/{project_id}/files", response_model=List[FileSchema])
 @vectorize(search_description="List project files", capture_return_value=True)
 def get_project_files(
         project_id: int,
@@ -258,7 +300,7 @@ def get_project_files(
         ).first()
 
         if latest_v:
-            results.append(FileResponse(
+            results.append(FileSchema(
                 id=f.id,
                 project_id=f.project_id,
                 filename=f.filename,
@@ -282,7 +324,6 @@ async def delete_file(
         user_id: int = Depends(get_current_user_id),
         db: Session = Depends(get_db)
 ):
-    # 1. 파일 메타데이터 조회
     file_meta = db.get(FileMetadata, file_id)
     if not file_meta:
         raise HTTPException(status_code=404, detail="File not found")
@@ -291,27 +332,20 @@ async def delete_file(
     filename = file_meta.filename
     project_id = file_meta.project_id
 
-    # 2. [핵심] 연관된 버전 정보(FileVersion) 먼저 삭제
-    #    부모(FileMetadata)를 지우기 전에 자식(FileVersion)을 먼저 지워야
-    #    FK 제약 조건(NotNullViolation) 에러가 나지 않습니다.
+    # 1. 버전 정보(자식) 먼저 삭제
     versions = db.exec(select(FileVersion).where(FileVersion.file_id == file_id)).all()
-
     for v in versions:
-        # 실제 디스크에 있는 파일 삭제 (선택 사항)
         if os.path.exists(v.saved_path):
             try:
                 os.remove(v.saved_path)
             except OSError:
-                pass # 파일이 이미 없으면 무시
-
-        # DB에서 버전 행 삭제
+                pass
         db.delete(v)
 
-    # 3. 이제 안전하게 메타데이터 삭제
+    # 2. 메타데이터(부모) 삭제
     db.delete(file_meta)
     db.commit()
 
-    # 4. 활동 로그 기록
     if project:
         user = db.get(User, user_id)
         log_activity(
@@ -319,8 +353,7 @@ async def delete_file(
             content=f"🗑️ '{user.name}'님이 파일 '{filename}'을(를) 삭제했습니다."
         )
 
-    # 5. [SSE] 실시간 알림 (jsonable_encoder 사용)
-    #    id는 int라 괜찮지만, 확장성을 위해 encoder 사용 권장
+    # 🔥 [SSE] 삭제 알림
     await board_event_manager.broadcast(project_id, {
         "type": "FILE_DELETED",
         "user_id": user_id,
