@@ -30,6 +30,16 @@ from app.utils.connection_manager import board_event_manager
 router = APIRouter(tags=["Board & Cards"])
 
 # =================================================================
+# Card ORM -> dict serialization helper
+# jsonable_encoder(card) cannot serialize SQLModel Relationship fields
+# (files, assignees). Use CardResponse.model_validate instead.
+# =================================================================
+def serialize_card(card: Card) -> dict:
+    """Card ORM -> dict with files/assignees included"""
+    return CardResponse.model_validate(card, from_attributes=True).model_dump(mode="json")
+
+
+# =================================================================
 # 📡 [신규] 보드 실시간 구독 (SSE)
 # =================================================================
 @router.get("/projects/{project_id}/board/events")
@@ -602,7 +612,7 @@ async def update_card(
     await board_event_manager.broadcast(card.project_id, {
         "type": "CARD_UPDATED",
         "user_id": user_id,
-        "data": jsonable_encoder(card)
+        "data": serialize_card(card)
     })
 
     return card
@@ -661,7 +671,7 @@ async def attach_file_to_card(card_id: int, file_id: int, user_id: int = Depends
     # 🔥 [SSE] jsonable_encoder 사용
     await board_event_manager.broadcast(card.project_id, {
         "type": "CARD_UPDATED",
-        "data": jsonable_encoder(card)
+        "data": serialize_card(card)
     })
 
     return card
@@ -677,6 +687,7 @@ async def detach_file_from_card(card_id: int, file_id: int, user_id: int = Depen
 
     user = db.get(User, user_id)
     card = db.get(Card, card_id)
+    db.refresh(card)  # relationship(files) stale 방지
     file = db.get(FileMetadata, file_id)
     project_id = card.project_id
     project = db.get(Project, card.project_id)
@@ -689,7 +700,7 @@ async def detach_file_from_card(card_id: int, file_id: int, user_id: int = Depen
     # 🔥 [SSE] jsonable_encoder 사용
     await board_event_manager.broadcast(project_id, {
         "type": "CARD_UPDATED",
-        "data": jsonable_encoder(card)
+        "data": serialize_card(card)
     })
 
     return {"message": "파일 연결이 해제되었습니다."}
@@ -716,7 +727,7 @@ async def create_comment(card_id: int, comment_data: CardCommentCreate, user_id:
     # 🔥 [SSE] jsonable_encoder 사용
     await board_event_manager.broadcast(project_id, {
         "type": "CARD_UPDATED",
-        "data": jsonable_encoder(card)
+        "data": serialize_card(card)
     })
 
     return new_comment
