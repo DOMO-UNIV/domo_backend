@@ -119,6 +119,7 @@ async def create_column(
     # 🔥 [SSE] jsonable_encoder 사용
     await board_event_manager.broadcast(project_id, {
         "type": "COLUMN_CREATED",
+        "user_id": user_id,
         "data": jsonable_encoder(new_col)
     })
 
@@ -147,6 +148,7 @@ async def create_column(
 async def update_column(
         column_id: int,
         col_data: BoardColumnUpdate,
+        user_id: int = Depends(get_current_user_id),
         db: Session = Depends(get_db)
 ):
     col = db.get(BoardColumn, column_id)
@@ -170,6 +172,7 @@ async def update_column(
     # 🔥 [SSE] jsonable_encoder 사용
     await board_event_manager.broadcast(col.project_id, {
         "type": "COLUMN_UPDATED",
+        "user_id": user_id,
         "data": jsonable_encoder(col)
     })
 
@@ -228,6 +231,7 @@ async def delete_column(
 
     await board_event_manager.broadcast(project_id, {
         "type": "COLUMN_DELETED",
+        "user_id": user_id,
         "data": {"id": column_id}
     })
 
@@ -321,6 +325,7 @@ async def create_card_connection(
     # 🔥 [SSE] jsonable_encoder 사용
     await board_event_manager.broadcast(from_card.project_id, {
         "type": "CONNECTION_CREATED",
+        "user_id": user_id,
         "data": jsonable_encoder(response_data)
     })
 
@@ -400,6 +405,7 @@ async def update_card_connection(
     # 🔥 [SSE] jsonable_encoder 사용
     await board_event_manager.broadcast(card_from.project_id, {
         "type": "CONNECTION_UPDATED",
+        "user_id": user_id,
         "data": jsonable_encoder(response_data)
     })
 
@@ -430,6 +436,7 @@ async def delete_card_connection(
     if project_id:
         await board_event_manager.broadcast(project_id, {
             "type": "CONNECTION_DELETED",
+            "user_id": user_id,
             "data": {"id": connection_id}
         })
 
@@ -498,6 +505,7 @@ async def update_cards_batch(
     if project_id and updated_cards:
         await board_event_manager.broadcast(project_id, {
             "type": "CARD_BATCH_UPDATED",
+            "user_id": user_id,
             "data": jsonable_encoder(updated_cards)
         })
 
@@ -635,6 +643,7 @@ async def delete_card(
 
     await board_event_manager.broadcast(project_id, {
         "type": "CARD_DELETED",
+        "user_id": user_id,
         "data": {"id": card_id}
     })
 
@@ -671,6 +680,7 @@ async def attach_file_to_card(card_id: int, file_id: int, user_id: int = Depends
     # 🔥 [SSE] jsonable_encoder 사용
     await board_event_manager.broadcast(card.project_id, {
         "type": "CARD_UPDATED",
+        "user_id": user_id,
         "data": serialize_card(card)
     })
 
@@ -700,6 +710,7 @@ async def detach_file_from_card(card_id: int, file_id: int, user_id: int = Depen
     # 🔥 [SSE] jsonable_encoder 사용
     await board_event_manager.broadcast(project_id, {
         "type": "CARD_UPDATED",
+        "user_id": user_id,
         "data": serialize_card(card)
     })
 
@@ -727,6 +738,7 @@ async def create_comment(card_id: int, comment_data: CardCommentCreate, user_id:
     # 🔥 [SSE] jsonable_encoder 사용
     await board_event_manager.broadcast(project_id, {
         "type": "CARD_UPDATED",
+        "user_id": user_id,
         "data": serialize_card(card)
     })
 
